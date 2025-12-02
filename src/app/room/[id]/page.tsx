@@ -26,9 +26,29 @@ const mockTeams: Team[] = [
 const mockParticipants: Participant[] = [
   { id: "captain1", roomId: "1", nickname: "팀장A", role: "CAPTAIN", position: "미드", description: "미드 장인", teamId: "team1", isOnline: true, createdAt: "" },
   { id: "captain2", roomId: "1", nickname: "팀장B", role: "CAPTAIN", position: "정글", description: "정글 캐리", teamId: "team2", isOnline: true, createdAt: "" },
+  { id: "captain3", roomId: "1", nickname: "팀장C", role: "CAPTAIN", position: "원딜", description: "원딜 장인", teamId: "team3", isOnline: true, createdAt: "" },
+  { id: "captain4", roomId: "1", nickname: "팀장D", role: "CAPTAIN", position: "서폿", description: "서폿 장인", teamId: "team4", isOnline: true, createdAt: "" },
+  { id: "captain5", roomId: "1", nickname: "팀장E", role: "CAPTAIN", position: "탑", description: "탑 장인", teamId: "team5", isOnline: true, createdAt: "" },
   { id: "member1", roomId: "1", nickname: "페이커짱", role: "MEMBER", position: "미드", description: "미드 장인입니다 믿고 뽑아주세요", teamId: null, isOnline: true, createdAt: "" },
   { id: "member2", roomId: "1", nickname: "원딜고수", role: "MEMBER", position: "원딜", description: "캐리 가능", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member3", roomId: "1", nickname: "서폿장인", role: "MEMBER", position: "서폿", description: "시야 장인", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member4", roomId: "1", nickname: "탑신병자", role: "MEMBER", position: "탑", description: "스플릿 장인", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member5", roomId: "1", nickname: "정글러123", role: "MEMBER", position: "정글", description: "갱킹 마스터", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member6", roomId: "1", nickname: "미드or탑", role: "MEMBER", position: "미드/탑", description: "듀얼 포지션", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member7", roomId: "1", nickname: "딜탱커", role: "MEMBER", position: "탑", description: "딜탱 전문", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member8", roomId: "1", nickname: "갱플전문", role: "MEMBER", position: "정글", description: "초반 갱 장인", teamId: null, isOnline: true, createdAt: "" },
 ];
+
+// Mock: 현재 유저 역할 (테스트용 - HOST로 변경하면 주최자 UI 확인 가능)
+const mockCurrentUser = {
+  id: "host1",
+  role: "HOST" as const, // HOST | CAPTAIN | MEMBER | OBSERVER
+};
+
+// 대기 중인 팀원 목록 (경매 순서대로)
+const mockAuctionQueue = mockParticipants
+  .filter((p) => p.role === "MEMBER" && p.teamId === null)
+  .map((p, index) => ({ ...p, order: index + 1 }));
 
 const mockCurrentBid = {
   amount: 150,
@@ -77,8 +97,38 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
               {phaseLabels[phase].emoji} {phaseLabels[phase].label}
             </span>
           </div>
-          <div className="text-sm text-slate-400">
-            진행: 3/{mockRoom.teamCount * mockRoom.memberPerTeam}
+
+          <div className="flex items-center gap-4">
+            {/* 주최자 컨트롤 */}
+            {mockCurrentUser.role === "HOST" && (
+              <div className="flex items-center gap-2">
+                <motion.button
+                  className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    const phases: AuctionPhase[] = ["WAITING", "CAPTAIN_INTRO", "SHUFFLE", "AUCTION", "FINISHED"];
+                    const currentIndex = phases.indexOf(phase);
+                    if (currentIndex < phases.length - 1) {
+                      setPhase(phases[currentIndex + 1]);
+                    }
+                  }}
+                >
+                  다음 단계 →
+                </motion.button>
+                <motion.button
+                  className="rounded-lg border border-slate-600 bg-slate-800/50 px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-700/50"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  일시정지
+                </motion.button>
+              </div>
+            )}
+
+            <div className="text-sm text-slate-400">
+              진행: 3/{mockRoom.teamCount * mockRoom.memberPerTeam}
+            </div>
           </div>
         </div>
       </header>
@@ -184,30 +234,39 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                     </p>
                   </div>
 
-                  {/* Bid buttons */}
-                  <div className="flex gap-4">
-                    <motion.button
-                      className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 text-lg font-bold text-slate-900 shadow-xl shadow-amber-500/30"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      +{minBidUnit} 입찰
-                    </motion.button>
-                    <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/50 px-4">
-                      <input
-                        type="number"
-                        placeholder="직접 입력"
-                        className="w-24 bg-transparent py-4 text-center text-slate-200 outline-none placeholder:text-slate-500"
-                      />
+                  {/* Bid buttons - 팀장만 표시 */}
+                  {mockCurrentUser.role === "CAPTAIN" ? (
+                    <div className="flex gap-4">
                       <motion.button
-                        className="rounded-full bg-slate-700 px-4 py-2 text-sm font-medium text-slate-200"
+                        className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 text-lg font-bold text-slate-900 shadow-xl shadow-amber-500/30"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
-                        입찰
+                        +{minBidUnit} 입찰
                       </motion.button>
+                      <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/50 px-4">
+                        <input
+                          type="number"
+                          placeholder="직접 입력"
+                          className="w-24 bg-transparent py-4 text-center text-slate-200 outline-none placeholder:text-slate-500"
+                        />
+                        <motion.button
+                          className="rounded-full bg-slate-700 px-4 py-2 text-sm font-medium text-slate-200"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          입찰
+                        </motion.button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="rounded-full bg-slate-800/50 px-6 py-3 text-slate-400">
+                        👀 관전 중
+                      </div>
+                      <p className="text-sm text-slate-500">팀장만 입찰할 수 있습니다</p>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
@@ -221,17 +280,229 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                   <div className="mb-4 text-6xl">⏳</div>
                   <h2 className="text-2xl font-bold text-slate-200">참가자 입장 대기 중</h2>
                   <p className="mt-2 text-slate-400">모든 팀장이 입장하면 경매를 시작할 수 있습니다</p>
+
+                  {/* 팀장 입장 현황 */}
+                  <div className="mt-8 rounded-xl border border-slate-700/50 bg-slate-800/30 p-6">
+                    <div className="mb-4 text-lg font-semibold text-amber-400">
+                      팀장 입장 현황: {mockParticipants.filter(p => p.role === "CAPTAIN" && p.isOnline).length}/{mockRoom.teamCount}
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {mockTeams.map((team) => {
+                        const captain = mockParticipants.find(p => p.id === team.captainId);
+                        const isOnline = captain?.isOnline;
+                        return (
+                          <div
+                            key={team.id}
+                            className={`rounded-lg border px-4 py-2 ${
+                              isOnline
+                                ? "border-green-500/50 bg-green-500/10 text-green-400"
+                                : "border-slate-700 bg-slate-800/50 text-slate-500"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`h-2 w-2 rounded-full ${isOnline ? "bg-green-500" : "bg-slate-600"}`}
+                              />
+                              <span className="font-medium">{team.name}</span>
+                            </div>
+                            <div className="text-xs opacity-70">
+                              {captain?.nickname || "대기 중"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 팀장 소개 페이즈 */}
+              {phase === "CAPTAIN_INTRO" && (
+                <motion.div
+                  key="captain-intro"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex h-full flex-col items-center py-8"
+                >
+                  <h2 className="mb-2 text-3xl font-bold text-slate-200">팀장 소개</h2>
+                  <p className="mb-8 text-slate-400">각 팀을 이끌 팀장들을 소개합니다</p>
+
+                  <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {mockTeams.map((team, index) => {
+                      const captain = mockParticipants.find(p => p.id === team.captainId);
+                      return (
+                        <motion.div
+                          key={team.id}
+                          className="rounded-2xl border border-slate-700/50 bg-slate-800/30 p-6 text-center"
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.1 }}
+                          whileHover={{ scale: 1.02, y: -5 }}
+                        >
+                          <div
+                            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full text-3xl"
+                            style={{ backgroundColor: `${team.color}20` }}
+                          >
+                            👑
+                          </div>
+                          <div className="mb-1 text-xl font-bold text-slate-200">
+                            {captain?.nickname}
+                          </div>
+                          <div
+                            className="mb-2 inline-block rounded-full px-3 py-1 text-sm font-medium"
+                            style={{ backgroundColor: `${team.color}20`, color: team.color }}
+                          >
+                            {team.name} · {captain?.position}
+                          </div>
+                          <p className="text-sm text-slate-400">
+                            &ldquo;{captain?.description}&rdquo;
+                          </p>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 셔플 페이즈 */}
+              {phase === "SHUFFLE" && (
+                <motion.div
+                  key="shuffle"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex h-full flex-col items-center justify-center"
+                >
+                  <h2 className="mb-2 text-3xl font-bold text-slate-200">팀원 순서 셔플</h2>
+                  <p className="mb-8 text-slate-400">경매 순서를 무작위로 정합니다</p>
+
+                  <div className="relative flex flex-wrap justify-center gap-3">
+                    {mockAuctionQueue.map((member, index) => (
+                      <motion.div
+                        key={member.id}
+                        className="relative rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3"
+                        initial={{
+                          x: Math.random() * 200 - 100,
+                          y: Math.random() * 200 - 100,
+                          rotate: Math.random() * 30 - 15,
+                          opacity: 0
+                        }}
+                        animate={{
+                          x: 0,
+                          y: 0,
+                          rotate: 0,
+                          opacity: 1
+                        }}
+                        transition={{
+                          delay: index * 0.1,
+                          type: "spring",
+                          stiffness: 100
+                        }}
+                      >
+                        <div className="absolute -top-2 -left-2 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-slate-900">
+                          {index + 1}
+                        </div>
+                        <div className="text-sm font-medium text-slate-200">{member.nickname}</div>
+                        <div className="text-xs text-slate-500">{member.position}</div>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  <motion.p
+                    className="mt-8 text-amber-400"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: mockAuctionQueue.length * 0.1 + 0.5 }}
+                  >
+                    ✨ 순서가 결정되었습니다!
+                  </motion.p>
+                </motion.div>
+              )}
+
+              {/* 경매 종료 페이즈 */}
+              {phase === "FINISHED" && (
+                <motion.div
+                  key="finished"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex h-full flex-col items-center justify-center text-center"
+                >
+                  <motion.div
+                    className="mb-6 text-8xl"
+                    animate={{
+                      rotate: [0, 10, -10, 10, 0],
+                      scale: [1, 1.1, 1]
+                    }}
+                    transition={{ duration: 0.5 }}
+                  >
+                    🏆
+                  </motion.div>
+                  <h2 className="mb-2 text-4xl font-bold text-amber-400">경매 종료!</h2>
+                  <p className="mb-8 text-xl text-slate-400">모든 팀 구성이 완료되었습니다</p>
+
+                  <motion.button
+                    className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 text-lg font-bold text-slate-900 shadow-xl shadow-amber-500/30"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    결과 보기 →
+                  </motion.button>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
 
-          {/* Next in queue */}
-          <div className="border-t border-slate-700/50 bg-slate-900/50 px-6 py-3">
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <span>📜 다음 경매 대기:</span>
-              <span className="text-slate-300">원딜고수, 서폿장인, 탑신병자</span>
-              <span className="text-slate-500">(+17명)</span>
+          {/* Next in queue - 카드 형식 */}
+          <div className="border-t border-slate-700/50 bg-slate-900/50 px-6 py-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-400">📜 경매 대기열</span>
+              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
+                {mockAuctionQueue.length}명
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {mockAuctionQueue.slice(0, 8).map((member, index) => (
+                <div key={member.id} className="flex items-center">
+                  {/* 카드 */}
+                  <motion.div
+                    className={`relative rounded-lg border px-3 py-2 ${
+                      index === 0
+                        ? "border-amber-500/50 bg-amber-500/10"
+                        : "border-slate-700/50 bg-slate-800/30"
+                    }`}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ scale: 1.05, y: -2 }}
+                  >
+                    {/* 순서 뱃지 */}
+                    <div className={`absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+                      index === 0
+                        ? "bg-amber-500 text-slate-900"
+                        : "bg-slate-700 text-slate-300"
+                    }`}>
+                      {member.order}
+                    </div>
+                    <div className="text-sm font-medium text-slate-200">{member.nickname}</div>
+                    <div className="text-xs text-slate-500">{member.position}</div>
+                  </motion.div>
+                  {/* 화살표 (지그재그) */}
+                  {index < mockAuctionQueue.slice(0, 8).length - 1 && (
+                    <motion.span
+                      className={`mx-1 text-slate-600 ${index % 2 === 0 ? "rotate-0" : "rotate-0"}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: index * 0.05 + 0.1 }}
+                    >
+                      →
+                    </motion.span>
+                  )}
+                </div>
+              ))}
+              {mockAuctionQueue.length > 8 && (
+                <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 px-3 py-2 text-sm text-slate-500">
+                  +{mockAuctionQueue.length - 8}명 더
+                </div>
+              )}
             </div>
           </div>
         </main>
