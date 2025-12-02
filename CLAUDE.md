@@ -64,6 +64,38 @@ NEXT_PUBLIC_SUPABASE_URL=your_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key
 ```
 
+## Git Workflow
+
+### Branch Strategy
+- **main**: Vercel 연동, 프로덕션 배포 전용 (직접 커밋 금지)
+- **develop**: 개발 메인 브랜치 (모든 작업 브랜치의 base)
+- **feature/[task-name]**: 새 기능 개발
+- **fix/[bug-name]**: 버그 수정
+- **refactor/[target]**: 리팩토링
+
+### Workflow Rules
+1. **모든 작업은 반드시 브랜치를 생성해서 진행**
+2. develop 브랜치에서 작업 브랜치 생성:
+   ```bash
+   git checkout develop
+   git pull origin develop
+   git checkout -b feature/landing-page
+   ```
+3. 작업 완료 후 develop으로 PR/Merge
+4. develop → main 머지는 배포 준비 완료 시에만
+
+### Example
+```bash
+# 랜딩 페이지 작업 시작
+git checkout develop
+git checkout -b feature/landing-page
+# ... 작업 진행 ...
+git add .
+git commit -m "feat: 랜딩 페이지 구현"
+git push origin feature/landing-page
+# PR 생성 후 develop으로 머지
+```
+
 ## Documentation
 
 상세 기획 문서: `docs/PROJECT_OVERVIEW.md`, `docs/REQUIREMENTS.md`, `docs/TECH_STACK.md`
