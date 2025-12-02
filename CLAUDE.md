@@ -52,9 +52,39 @@ team:{teamId}
   └── chat       # 팀 채팅 (Broadcast)
 ```
 
+### Lib Modules
+
+```
+src/lib/
+  supabase.ts        # Supabase 클라이언트
+  constants.ts       # 설정값, 색상, 이벤트 타입 상수
+  auction-utils.ts   # 입찰 단위 계산, 셔플, 포맷 유틸리티
+  realtime.ts        # Supabase Realtime 커스텀 훅
+  api/
+    auction.ts       # 경매방 CRUD API 함수
+```
+
+### Realtime Hooks (`src/lib/realtime.ts`)
+
+```typescript
+// 경매방 채널 구독 (Broadcast + Presence)
+const { channel, isConnected, broadcast } = useRoomChannel(roomId, onEvent);
+broadcast("BID", { amount: 100, teamId: "..." });
+
+// 팀 채팅 채널
+const { channel, isConnected, sendMessage } = useTeamChannel(teamId, onMessage);
+
+// 접속자 상태
+const { onlineUsers } = usePresence(roomId, userId, { nickname, role });
+
+// DB 변경 구독
+useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
+```
+
 ### Auction Rules
-- **Timer**: 15초 시작, 입찰마다 +2초
-- **Bid Unit**: 0~99 → +5p, 100~199 → +10p, 200~299 → +15p, 300+ → +20p...
+- **Timer**: 15초 시작, 입찰마다 +2초 (고정값, `src/lib/constants.ts`)
+- **Bid Unit**: 0~99 → +5p, 100~199 → +10p, 200~299 → +15p, 400+ → 100마다 +5p
+- 입찰 단위 계산: `getMinBidUnit()`, `getNextMinBid()` (`src/lib/auction-utils.ts`)
 
 ## Database Setup
 
@@ -231,6 +261,23 @@ git commit -m "feat: 랜딩 페이지 구현"
 git push origin feature/landing-page
 # PR 생성 후 develop으로 머지
 ```
+
+## API Pattern
+
+```typescript
+// src/lib/api/auction.ts 예시
+import { supabase } from "@/lib/supabase";
+
+export async function createAuction(params: CreateAuctionParams) {
+  const { data, error } = await supabase.from("auction_rooms").insert({...}).select().single();
+  if (error) throw new Error(`실패: ${error.message}`);
+  return data;
+}
+```
+
+- 모든 API 함수는 `src/lib/api/` 폴더에 위치
+- Supabase 에러는 throw하여 호출부에서 try-catch 처리
+- 타입은 `src/types/index.ts`에서 import
 
 ## Documentation
 
