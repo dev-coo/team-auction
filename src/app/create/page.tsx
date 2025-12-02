@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { createAuction } from "@/lib/api/auction";
 
 export default function CreateAuction() {
   const router = useRouter();
@@ -12,11 +13,10 @@ export default function CreateAuction() {
     teamCount: 5,
     memberPerTeam: 4,
     totalPoints: 1000,
-    auctionTime: 15,
-    bidTimeAdd: 2,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -61,12 +61,21 @@ export default function CreateAuction() {
       return;
     }
 
-    // TODO: Supabase 연결 후 실제 API 호출
-    console.log("경매 생성:", formData);
+    setIsLoading(true);
 
-    // 임시: 알림 후 홈으로 이동
-    alert("경매가 생성되었습니다! (임시 - Supabase 연결 필요)");
-    // router.push("/room/[id]"); // 실제로는 생성된 방 ID로 이동
+    try {
+      const result = await createAuction(formData);
+
+      // 생성 성공 - 경매방 페이지로 이동
+      router.push(`/room/${result.room.id}`);
+    } catch (error) {
+      console.error("경매 생성 실패:", error);
+      setErrors({
+        submit: error instanceof Error ? error.message : "경매 생성에 실패했습니다.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -222,49 +231,8 @@ export default function CreateAuction() {
               </p>
             </div>
 
-            {/* 타이머 설정 */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="auctionTime"
-                  className="mb-2 block text-sm font-medium text-slate-300"
-                >
-                  경매 시작 시간 (초)
-                </label>
-                <input
-                  type="number"
-                  id="auctionTime"
-                  name="auctionTime"
-                  value={formData.auctionTime}
-                  onChange={handleChange}
-                  min="5"
-                  max="60"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-3 text-slate-200 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="bidTimeAdd"
-                  className="mb-2 block text-sm font-medium text-slate-300"
-                >
-                  입찰 시 추가 시간 (초)
-                </label>
-                <input
-                  type="number"
-                  id="bidTimeAdd"
-                  name="bidTimeAdd"
-                  value={formData.bidTimeAdd}
-                  onChange={handleChange}
-                  min="1"
-                  max="10"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-3 text-slate-200 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
-                />
-              </div>
-            </div>
-
             {/* 정보 카드 */}
-            <div className="rounded-lg border border-slate-700/50 bg-slate-900/50 p-4">
+            <div className="rounded-lg border border-slate-700/50 bg-slate-900/50 p-4 space-y-2">
               <p className="text-sm text-slate-400">
                 📊 총{" "}
                 <span className="font-semibold text-amber-400">
@@ -280,14 +248,25 @@ export default function CreateAuction() {
                 </span>{" "}
                 필요
               </p>
+              <p className="text-sm text-slate-500">
+                ⏱️ 경매 타이머: 15초 시작, 입찰 시 +2초 추가
+              </p>
             </div>
+
+            {/* 에러 메시지 */}
+            {errors.submit && (
+              <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4">
+                <p className="text-sm text-red-400">{errors.submit}</p>
+              </div>
+            )}
 
             {/* 버튼 */}
             <div className="flex gap-4">
               <Link href="/" className="flex-1">
                 <motion.button
                   type="button"
-                  className="w-full rounded-full border border-slate-600 bg-slate-800/50 px-8 py-4 font-semibold text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-700/50"
+                  disabled={isLoading}
+                  className="w-full rounded-full border border-slate-600 bg-slate-800/50 px-8 py-4 font-semibold text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -297,11 +276,12 @@ export default function CreateAuction() {
 
               <motion.button
                 type="submit"
-                className="flex-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 font-bold text-slate-900 shadow-xl shadow-amber-500/30 transition-all hover:shadow-amber-500/50"
+                disabled={isLoading}
+                className="flex-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 font-bold text-slate-900 shadow-xl shadow-amber-500/30 transition-all hover:shadow-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                경매 생성하기
+                {isLoading ? "생성 중..." : "경매 생성하기"}
               </motion.button>
             </div>
           </form>
