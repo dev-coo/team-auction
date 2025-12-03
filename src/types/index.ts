@@ -18,6 +18,8 @@ export interface AuctionRoom {
   memberPerTeam: number;
   phase: AuctionPhase;
   currentTargetId: string | null;
+  hostCode: string;
+  observerCode: string;
   createdAt: string;
 }
 
@@ -31,6 +33,8 @@ export interface Participant {
   description: string | null;
   teamId: string | null;
   isOnline: boolean;
+  isConfirmed: boolean;
+  auctionOrder: number | null;
   createdAt: string;
 }
 
@@ -39,9 +43,11 @@ export interface Team {
   id: string;
   roomId: string;
   name: string;
-  captainId: string;
+  captainId: string | null;
+  captainCode: string;
   currentPoints: number;
   color: string;
+  createdAt: string;
 }
 
 // 입찰
