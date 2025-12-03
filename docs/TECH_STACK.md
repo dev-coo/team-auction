@@ -93,10 +93,9 @@ room:{roomId}
   ├── timer      # 타이머 동기화 (Broadcast)
   ├── chat       # 전체 채팅 (Broadcast)
   └── presence   # 접속자 상태 (Presence)
-
-team:{teamId}
-  └── chat       # 팀 채팅 (Broadcast)
 ```
+
+> **참고**: 팀 채팅은 제공하지 않음 (팀원이 관전자 역할)
 
 ### 4.4 이벤트 예시
 
