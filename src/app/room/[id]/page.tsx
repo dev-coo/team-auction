@@ -1,106 +1,34 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AuctionPhase, Team, Participant, ParticipantRole } from "@/types";
-import { useRoomChannel } from "@/lib/realtime";
+import { AuctionPhase, AuctionRoom as AuctionRoomType, Team, Participant, ParticipantRole } from "@/types";
+import { useRoomChannel, usePresence } from "@/lib/realtime";
+import { getAuctionById, getTeamsByRoomId, getParticipantsByRoomId } from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
-
-// Mock 데이터 - 8팀 5명 (팀장 8명 + 팀원 32명 = 총 40명)
-const mockRoom = {
-  id: "1",
-  title: "롤 내전 경매",
-  totalPoints: 1000,
-  teamCount: 8,
-  memberPerTeam: 5,
-  phase: "WAITING" as AuctionPhase,
-  currentTargetId: "member1",
-};
-
-const mockTeams: Team[] = [
-  { id: "team1", roomId: "1", name: "1팀", captainId: "captain1", captainCode: "abc1", currentPoints: 850, color: "#EF4444", createdAt: "" },
-  { id: "team2", roomId: "1", name: "2팀", captainId: "captain2", captainCode: "abc2", currentPoints: 720, color: "#F97316", createdAt: "" },
-  { id: "team3", roomId: "1", name: "3팀", captainId: "captain3", captainCode: "abc3", currentPoints: 650, color: "#EAB308", createdAt: "" },
-  { id: "team4", roomId: "1", name: "4팀", captainId: "captain4", captainCode: "abc4", currentPoints: 900, color: "#22C55E", createdAt: "" },
-  { id: "team5", roomId: "1", name: "5팀", captainId: "captain5", captainCode: "abc5", currentPoints: 780, color: "#3B82F6", createdAt: "" },
-  { id: "team6", roomId: "1", name: "6팀", captainId: "captain6", captainCode: "abc6", currentPoints: 820, color: "#8B5CF6", createdAt: "" },
-  { id: "team7", roomId: "1", name: "7팀", captainId: "captain7", captainCode: "abc7", currentPoints: 690, color: "#EC4899", createdAt: "" },
-  { id: "team8", roomId: "1", name: "8팀", captainId: "captain8", captainCode: "abc8", currentPoints: 750, color: "#06B6D4", createdAt: "" },
-];
-
-const mockParticipants: Participant[] = [
-  // 팀장 8명
-  { id: "captain1", roomId: "1", nickname: "Hide온bush", role: "CAPTAIN", position: "미드", description: "미드 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain2", roomId: "1", nickname: "정글의신", role: "CAPTAIN", position: "정글", description: "정글 캐리", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain3", roomId: "1", nickname: "원딜마스터", role: "CAPTAIN", position: "원딜", description: "원딜 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain4", roomId: "1", nickname: "서폿왕", role: "CAPTAIN", position: "서폿", description: "서폿 장인", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain5", roomId: "1", nickname: "탑라이너", role: "CAPTAIN", position: "탑", description: "탑 장인", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain6", roomId: "1", nickname: "올라운더", role: "CAPTAIN", position: "미드/정글", description: "듀얼 포지션", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain7", roomId: "1", nickname: "캐리장인", role: "CAPTAIN", position: "원딜", description: "팀 캐리 전문", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
-  { id: "captain8", roomId: "1", nickname: "샷콜러", role: "CAPTAIN", position: "서폿", description: "콜 담당", teamId: "team8", isOnline: false, isConfirmed: false, auctionOrder: null, createdAt: "" },
-  // 팀원 32명 (경매 대상) - 25명 낙찰 완료, 7명 대기 중
-  // 1팀: 4명 완료 (풀팀)
-  { id: "member1", roomId: "1", nickname: "페이커짱", role: "MEMBER", position: "미드", description: "미드 장인입니다", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 1, createdAt: "" },
-  { id: "member2", roomId: "1", nickname: "쵸비팬", role: "MEMBER", position: "미드", description: "로밍 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 2, createdAt: "" },
-  { id: "member3", roomId: "1", nickname: "미드갓", role: "MEMBER", position: "미드", description: "암살자 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 3, createdAt: "" },
-  { id: "member4", roomId: "1", nickname: "컨트롤형", role: "MEMBER", position: "미드", description: "컨트롤 메이지", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 4, createdAt: "" },
-  // 2팀: 4명 완료 (풀팀)
-  { id: "member5", roomId: "1", nickname: "정글러123", role: "MEMBER", position: "정글", description: "갱킹 마스터", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 5, createdAt: "" },
-  { id: "member6", roomId: "1", nickname: "갱플전문", role: "MEMBER", position: "정글", description: "초반 갱 장인", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 6, createdAt: "" },
-  { id: "member7", roomId: "1", nickname: "파밍러", role: "MEMBER", position: "정글", description: "파밍형 정글러", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 7, createdAt: "" },
-  { id: "member8", roomId: "1", nickname: "오브젝터", role: "MEMBER", position: "정글", description: "오브젝트 전문", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 8, createdAt: "" },
-  // 3팀: 4명 완료 (풀팀)
-  { id: "member9", roomId: "1", nickname: "원딜고수", role: "MEMBER", position: "원딜", description: "캐리 가능", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 9, createdAt: "" },
-  { id: "member10", roomId: "1", nickname: "한타충", role: "MEMBER", position: "원딜", description: "한타 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 10, createdAt: "" },
-  { id: "member11", roomId: "1", nickname: "라인전장인", role: "MEMBER", position: "원딜", description: "라인전 강자", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 11, createdAt: "" },
-  { id: "member12", roomId: "1", nickname: "CS마스터", role: "MEMBER", position: "원딜", description: "CS 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 12, createdAt: "" },
-  // 4팀: 3명
-  { id: "member13", roomId: "1", nickname: "서폿장인", role: "MEMBER", position: "서폿", description: "시야 장인", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 13, createdAt: "" },
-  { id: "member14", roomId: "1", nickname: "힐러장인", role: "MEMBER", position: "서폿", description: "인챈터 전문", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 14, createdAt: "" },
-  { id: "member15", roomId: "1", nickname: "탱서폿", role: "MEMBER", position: "서폿", description: "탱커 서폿", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 15, createdAt: "" },
-  // 5팀: 3명
-  { id: "member16", roomId: "1", nickname: "로밍서폿", role: "MEMBER", position: "서폿", description: "로밍 전문", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 16, createdAt: "" },
-  { id: "member17", roomId: "1", nickname: "탑신병자", role: "MEMBER", position: "탑", description: "스플릿 장인", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 17, createdAt: "" },
-  { id: "member18", roomId: "1", nickname: "딜탱커", role: "MEMBER", position: "탑", description: "딜탱 전문", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 18, createdAt: "" },
-  // 6팀: 3명
-  { id: "member19", roomId: "1", nickname: "순탱유저", role: "MEMBER", position: "탑", description: "탱커 전문", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 19, createdAt: "" },
-  { id: "member20", roomId: "1", nickname: "캐리탑", role: "MEMBER", position: "탑", description: "탑 캐리형", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 20, createdAt: "" },
-  { id: "member21", roomId: "1", nickname: "미드or탑", role: "MEMBER", position: "미드/탑", description: "듀얼 포지션", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 21, createdAt: "" },
-  // 7팀: 2명
-  { id: "member22", roomId: "1", nickname: "정글or서폿", role: "MEMBER", position: "정글/서폿", description: "유연한 픽", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: 22, createdAt: "" },
-  { id: "member23", roomId: "1", nickname: "원딜or미드", role: "MEMBER", position: "원딜/미드", description: "원거리 딜러", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: 23, createdAt: "" },
-  // 8팀: 2명
-  { id: "member24", roomId: "1", nickname: "필포지션", role: "MEMBER", position: "ALL", description: "아무거나 가능", teamId: "team8", isOnline: true, isConfirmed: true, auctionOrder: 24, createdAt: "" },
-  { id: "member25", roomId: "1", nickname: "뉴비1234", role: "MEMBER", position: "서폿", description: "열심히 하겠습니다", teamId: "team8", isOnline: true, isConfirmed: true, auctionOrder: 25, createdAt: "" },
-  // 대기 중: 7명
-  { id: "member26", roomId: "1", nickname: "고인물99", role: "MEMBER", position: "정글", description: "10년차 정글러", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 26, createdAt: "" },
-  { id: "member27", roomId: "1", nickname: "플레장인", role: "MEMBER", position: "원딜", description: "플레 5회 달성", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 27, createdAt: "" },
-  { id: "member28", roomId: "1", nickname: "골드막이", role: "MEMBER", position: "탑", description: "골드 고인물", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 28, createdAt: "" },
-  { id: "member29", roomId: "1", nickname: "실버탈출", role: "MEMBER", position: "미드", description: "이번엔 골드간다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 29, createdAt: "" },
-  { id: "member30", roomId: "1", nickname: "다이아찍자", role: "MEMBER", position: "정글", description: "다이아 목표", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 30, createdAt: "" },
-  { id: "member31", roomId: "1", nickname: "즐겜러", role: "MEMBER", position: "서폿", description: "재미있게 합시다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 31, createdAt: "" },
-  { id: "member32", roomId: "1", nickname: "트롤아님", role: "MEMBER", position: "탑/정글", description: "진지하게 합니다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 32, createdAt: "" },
-];
+import InviteLinksModal from "@/components/InviteLinksModal";
 
 // 역할 목록 (테스트용)
 const roleOptions: ParticipantRole[] = ["HOST", "CAPTAIN", "MEMBER", "OBSERVER"];
 
-// 대기 중인 팀원 목록 (경매 순서대로)
-const mockAuctionQueue = mockParticipants
-  .filter((p) => p.role === "MEMBER" && p.teamId === null)
-  .map((p, index) => ({ ...p, order: index + 1 }));
+export default function AuctionRoom({ params }: { params: Promise<{ id: string }> }) {
+  // URL 파라미터
+  const [roomId, setRoomId] = useState<string>("");
 
-const mockCurrentBid = {
-  amount: 150,
-  teamId: "team1",
-  teamName: "A팀",
-};
+  // 데이터 상태
+  const [room, setRoom] = useState<AuctionRoomType | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export default function AuctionRoom({ params }: { params: { id: string } }) {
-  const [phase, setPhase] = useState<AuctionPhase>(mockRoom.phase);
-  const [currentRole, setCurrentRole] = useState<ParticipantRole>("HOST");
+  // UI 상태
+  const [phase, setPhase] = useState<AuctionPhase>("WAITING");
+  const [currentRole, setCurrentRole] = useState<ParticipantRole>("OBSERVER"); // 기본값 OBSERVER
+  const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
   const [timer, setTimer] = useState(12);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { id: "1", sender: "팀장A", content: "이번엔 내가 간다", teamId: null },
     { id: "2", sender: "팀장B", content: "ㅋㅋㅋ 경쟁 치열하네", teamId: null },
@@ -109,7 +37,144 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
   const [chatInput, setChatInput] = useState("");
   const [announceInput, setAnnounceInput] = useState("");
 
-  const currentTarget = mockParticipants.find((p) => p.id === mockRoom.currentTargetId);
+  // params Promise 해결
+  useEffect(() => {
+    params.then((p) => setRoomId(p.id));
+  }, [params]);
+
+  // DB에서 데이터 fetch
+  useEffect(() => {
+    if (!roomId) return;
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // 병렬로 데이터 fetch
+        const [roomData, teamsData, participantsData] = await Promise.all([
+          getAuctionById(roomId),
+          getTeamsByRoomId(roomId),
+          getParticipantsByRoomId(roomId),
+        ]);
+
+        if (!roomData) {
+          setError("경매방을 찾을 수 없습니다");
+          return;
+        }
+
+        setRoom(roomData);
+        setTeams(teamsData);
+        setParticipants(participantsData);
+        setPhase(roomData.phase);
+
+        // localStorage에서 역할 확인
+        const savedParticipantId = localStorage.getItem(`participant_id_${roomId}`);
+        const savedHostCode = localStorage.getItem(`host_code_${roomId}`);
+
+        if (savedParticipantId) {
+          // 참가자 ID가 있으면 해당 참가자의 역할 조회
+          const participant = participantsData.find((p) => p.id === savedParticipantId);
+          if (participant) {
+            setCurrentRole(participant.role);
+            setCurrentParticipantId(participant.id);
+          }
+        } else if (savedHostCode) {
+          // 주최자 코드가 있으면 HOST
+          setCurrentRole("HOST");
+        }
+        // 둘 다 없으면 기본값 OBSERVER 유지
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "데이터를 불러오는 중 오류가 발생했습니다");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [roomId]);
+
+  // 현재 사용자 정보 (Presence용)
+  const currentUser = useMemo(() => {
+    if (currentParticipantId) {
+      const participant = participants.find((p) => p.id === currentParticipantId);
+      if (participant) {
+        return { id: participant.id, nickname: participant.nickname, role: participant.role };
+      }
+    }
+    // HOST는 participant가 아니므로 임시 ID 사용
+    if (currentRole === "HOST") {
+      return { id: `host-${roomId}`, nickname: "주최자", role: "HOST" as const };
+    }
+    return null;
+  }, [currentParticipantId, participants, currentRole, roomId]);
+
+  // Presence로 온라인 상태 추적
+  const { onlineUsers } = usePresence(
+    roomId,
+    currentUser?.id || "",
+    { nickname: currentUser?.nickname || "", role: currentUser?.role || "OBSERVER" }
+  );
+
+  // 온라인 사용자 목록을 기반으로 participants의 isOnline 상태 업데이트
+  const participantsWithOnlineStatus = useMemo(() => {
+    if (!onlineUsers || Object.keys(onlineUsers).length === 0) {
+      return participants;
+    }
+
+    // Presence에서 온라인인 사용자 ID 목록
+    const onlineUserIds = new Set(Object.keys(onlineUsers));
+
+    return participants.map((p) => ({
+      ...p,
+      isOnline: onlineUserIds.has(p.id),
+    }));
+  }, [participants, onlineUsers]);
+
+  // 대기 중인 팀원 목록 (경매 순서대로)
+  const auctionQueue = useMemo(() => {
+    return participantsWithOnlineStatus
+      .filter((p) => p.role === "MEMBER" && p.teamId === null)
+      .map((p, index) => ({ ...p, order: index + 1 }));
+  }, [participantsWithOnlineStatus]);
+
+  // 현재 경매 대상
+  const currentTarget = useMemo(() => {
+    if (!room?.currentTargetId) return null;
+    return participantsWithOnlineStatus.find((p) => p.id === room.currentTargetId);
+  }, [room?.currentTargetId, participantsWithOnlineStatus]);
+
+  // 현재 입찰 정보 (임시)
+  const currentBid = useMemo(() => ({
+    amount: 150,
+    teamId: teams[0]?.id || "",
+    teamName: teams[0]?.name || "",
+  }), [teams]);
+
+  // 초대링크 모달용 teams with captain 데이터
+  const teamsWithCaptain = useMemo(() => {
+    return teams.map((team) => {
+      const captain = participantsWithOnlineStatus.find(
+        (p) => p.id === team.captainId
+      );
+      return {
+        ...team,
+        captain: captain || {
+          id: "",
+          roomId: team.roomId,
+          nickname: "미정",
+          role: "CAPTAIN" as const,
+          position: "",
+          description: null,
+          teamId: team.id,
+          isOnline: false,
+          isConfirmed: false,
+          auctionOrder: null,
+          createdAt: "",
+        },
+      };
+    });
+  }, [teams, participantsWithOnlineStatus]);
 
   // 최소 입찰 단위 계산
   const getMinBidUnit = (currentBid: number) => {
@@ -119,7 +184,7 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
     return Math.floor(currentBid / 100) * 5;
   };
 
-  const minBidUnit = getMinBidUnit(mockCurrentBid.amount);
+  const minBidUnit = getMinBidUnit(currentBid.amount);
 
   // Realtime 이벤트 핸들러
   const handleRealtimeEvent = useCallback((event: { type: string; payload: Record<string, unknown> }) => {
@@ -132,7 +197,7 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
   }, []);
 
   // Realtime 채널 연결
-  const { broadcast, isConnected } = useRoomChannel(mockRoom.id, handleRealtimeEvent);
+  const { broadcast, isConnected } = useRoomChannel(roomId, handleRealtimeEvent);
 
   // 다음 페이즈로 이동 (주최자용)
   const handleNextPhase = useCallback(() => {
@@ -161,20 +226,63 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
     OBSERVER: { label: "관전자", color: "text-slate-400 bg-slate-500/10 border-slate-500/30" },
   };
 
+  // 로딩 상태
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-center">
+          <div className="mb-4 text-4xl">⏳</div>
+          <p className="text-slate-400">경매방을 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 에러 상태
+  if (error || !room) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-center">
+          <div className="mb-4 text-4xl">❌</div>
+          <p className="text-red-400">{error || "경매방을 찾을 수 없습니다"}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-slate-700 px-4 py-2 text-slate-200 hover:bg-slate-600"
+          >
+            다시 시도
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Header */}
       <header className="border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-sm">
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-slate-200">{mockRoom.title}</h1>
+            <h1 className="text-xl font-bold text-slate-200">{room.title}</h1>
             <div className="text-sm text-slate-400">
-              진행: {mockParticipants.filter(p => p.role === "MEMBER" && p.teamId !== null).length}/
-              {mockParticipants.filter(p => p.role === "MEMBER").length}
+              진행: {participantsWithOnlineStatus.filter(p => p.role === "MEMBER" && p.teamId !== null).length}/
+              {participantsWithOnlineStatus.filter(p => p.role === "MEMBER").length}
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            {/* 주최자용 초대링크 버튼 */}
+            {currentRole === "HOST" && (
+              <motion.button
+                className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowInviteModal(true)}
+              >
+                <span>🔗</span>
+                <span>초대링크</span>
+              </motion.button>
+            )}
+
             {/* 디버그 컨트롤 (역할/페이즈 선택) */}
             <DebugControls
               currentRole={currentRole}
@@ -206,9 +314,9 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
             </h2>
           </div>
           <div className="px-4 pb-4 space-y-3">
-            {mockTeams.map((team) => {
-              const captain = mockParticipants.find((p) => p.id === team.captainId);
-              const members = mockParticipants.filter((p) => p.teamId === team.id && p.role === "MEMBER");
+            {teams.map((team) => {
+              const captain = participantsWithOnlineStatus.find((p) => p.id === team.captainId);
+              const members = participantsWithOnlineStatus.filter((p) => p.teamId === team.id && p.role === "MEMBER");
               const isWaiting = phase === "WAITING";
               return (
                 <motion.div
@@ -315,11 +423,11 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                   <div className="mb-8 text-center">
                     <p className="text-sm text-slate-400">현재 입찰가</p>
                     <p className="text-4xl font-bold text-amber-400">
-                      {mockCurrentBid.amount}
+                      {currentBid.amount}
                       <span className="text-2xl">p</span>
                     </p>
                     <p className="mt-1 text-slate-400">
-                      최고 입찰자: <span className="text-slate-200">{mockCurrentBid.teamName}</span>
+                      최고 입찰자: <span className="text-slate-200">{currentBid.teamName}</span>
                     </p>
                   </div>
 
@@ -363,8 +471,8 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
               {phase === "WAITING" && (
                 <WaitingPhase
                   currentRole={currentRole}
-                  teams={mockTeams}
-                  participants={mockParticipants}
+                  teams={teams}
+                  participants={participantsWithOnlineStatus}
                   onNextPhase={handleNextPhase}
                 />
               )}
@@ -381,8 +489,8 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                   <p className="mb-8 text-slate-400">각 팀을 이끌 팀장들을 소개합니다</p>
 
                   <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {mockTeams.map((team, index) => {
-                      const captain = mockParticipants.find(p => p.id === team.captainId);
+                    {teams.map((team, index) => {
+                      const captain = participantsWithOnlineStatus.find(p => p.id === team.captainId);
                       return (
                         <motion.div
                           key={team.id}
@@ -429,7 +537,7 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                   <p className="mb-8 text-slate-400">경매 순서를 무작위로 정합니다</p>
 
                   <div className="relative flex flex-wrap justify-center gap-3">
-                    {mockAuctionQueue.map((member, index) => (
+                    {auctionQueue.map((member, index) => (
                       <motion.div
                         key={member.id}
                         className="relative rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3"
@@ -464,7 +572,7 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                     className="mt-8 text-amber-400"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ delay: mockAuctionQueue.length * 0.1 + 0.5 }}
+                    transition={{ delay: auctionQueue.length * 0.1 + 0.5 }}
                   >
                     ✨ 순서가 결정되었습니다!
                   </motion.p>
@@ -532,8 +640,8 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
             const showOrder = phase === "SHUFFLE" || phase === "AUCTION" || phase === "FINISHED";
             const queueTitle = showOrder ? "📜 경매 대기열" : "👥 경매 대상 팀원";
             const queueBadge = showOrder
-              ? `${mockAuctionQueue.length}명 대기`
-              : `총 ${mockAuctionQueue.length}명`;
+              ? `${auctionQueue.length}명 대기`
+              : `총 ${auctionQueue.length}명`;
 
             return (
               <div className="shrink-0 border-t border-slate-700/50 bg-slate-900/50 px-6 py-4 max-h-[200px] overflow-y-auto">
@@ -544,7 +652,7 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                   </span>
                 </div>
                 <div className="grid grid-cols-8 gap-2">
-                  {mockAuctionQueue.map((member, index) => (
+                  {auctionQueue.map((member, index) => (
                     <motion.div
                       key={member.id}
                       className={`relative rounded-lg border px-2 py-2 text-center ${
@@ -615,6 +723,15 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
           </div>
         </aside>
       </div>
+
+      {/* 초대링크 모달 */}
+      {showInviteModal && room && (
+        <InviteLinksModal
+          room={room}
+          teams={teamsWithCaptain}
+          onClose={() => setShowInviteModal(false)}
+        />
+      )}
     </div>
   );
 }

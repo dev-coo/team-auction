@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { RealtimeEvent, RealtimeEventType } from "@/types";
@@ -18,20 +18,24 @@ export function useRoomChannel(
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  // onEvent를 ref로 저장하여 dependency에서 제외 (무한 루프 방지)
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+
   useEffect(() => {
     if (!roomId) return;
 
     const roomChannel = supabase.channel(getChannelName.room(roomId), {
       config: {
-        broadcast: { self: true },
+        broadcast: { self: false }, // 자신이 보낸 메시지는 수신하지 않음
         presence: { key: roomId },
       },
     });
 
     // Broadcast 이벤트 구독
     roomChannel.on("broadcast", { event: "*" }, ({ payload }) => {
-      if (onEvent && payload) {
-        onEvent(payload as RealtimeEvent);
+      if (onEventRef.current && payload) {
+        onEventRef.current(payload as RealtimeEvent);
       }
     });
 
@@ -49,7 +53,7 @@ export function useRoomChannel(
     return () => {
       roomChannel.unsubscribe();
     };
-  }, [roomId, onEvent]);
+  }, [roomId]); // onEvent 제거
 
   // 이벤트 전송
   const broadcast = useCallback(
@@ -86,6 +90,10 @@ export function useTeamChannel(
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  // onMessage를 ref로 저장하여 dependency에서 제외 (무한 루프 방지)
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+
   useEffect(() => {
     if (!teamId) return;
 
@@ -96,8 +104,8 @@ export function useTeamChannel(
     });
 
     teamChannel.on("broadcast", { event: "CHAT" }, ({ payload }) => {
-      if (onMessage && payload) {
-        onMessage(payload as RealtimeEvent);
+      if (onMessageRef.current && payload) {
+        onMessageRef.current(payload as RealtimeEvent);
       }
     });
 
@@ -114,7 +122,7 @@ export function useTeamChannel(
     return () => {
       teamChannel.unsubscribe();
     };
-  }, [teamId, onMessage]);
+  }, [teamId]); // onMessage 제거
 
   const sendMessage = useCallback(
     (content: string, senderNickname: string) => {
@@ -151,37 +159,48 @@ export function usePresence(
 ) {
   const [onlineUsers, setOnlineUsers] = useState<Record<string, any>>({});
 
+  // userInfo를 ref로 저장하여 최신 값 유지
+  const userInfoRef = useRef(userInfo);
+  userInfoRef.current = userInfo;
+
+  // userInfo를 문자열화하여 dependency 안정화
+  const userInfoKey = `${userInfo.nickname}:${userInfo.role}`;
+
   useEffect(() => {
     if (!roomId || !userId) return;
 
-    const channel = supabase.channel(getChannelName.room(roomId), {
+    // Presence 전용 채널 사용 (room 채널과 분리)
+    const channel = supabase.channel(getChannelName.presence(roomId), {
       config: {
         presence: { key: userId },
       },
     });
 
-    // 사용자 입장
+    // 사용자 입장/퇴장 처리
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        setOnlineUsers(state);
+        // 새 객체로 복사하여 React가 변화를 감지하도록 함
+        setOnlineUsers({ ...state });
       })
-      .on("presence", { event: "join" }, ({ key, newPresences }) => {
-        console.log("User joined:", key, newPresences);
+      .on("presence", { event: "join" }, () => {
+        const state = channel.presenceState();
+        setOnlineUsers({ ...state });
       })
-      .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
-        console.log("User left:", key, leftPresences);
+      .on("presence", { event: "leave" }, () => {
+        const state = channel.presenceState();
+        setOnlineUsers({ ...state });
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          await channel.track(userInfo);
+          await channel.track(userInfoRef.current);
         }
       });
 
     return () => {
       channel.unsubscribe();
     };
-  }, [roomId, userId, userInfo]);
+  }, [roomId, userId, userInfoKey]); // userInfo 객체 대신 문자열 key 사용
 
   return { onlineUsers };
 }
