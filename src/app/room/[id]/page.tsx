@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AuctionPhase, Team, Participant, ParticipantRole } from "@/types";
+import { useRoomChannel } from "@/lib/realtime";
+import DebugControls from "./components/DebugControls";
+import WaitingPhase from "./components/phases/WaitingPhase";
 
 // Mock 데이터 - 8팀 5명 (팀장 8명 + 팀원 32명 = 총 40명)
 const mockRoom = {
@@ -11,7 +14,7 @@ const mockRoom = {
   totalPoints: 1000,
   teamCount: 8,
   memberPerTeam: 5,
-  phase: "AUCTION" as AuctionPhase,
+  phase: "WAITING" as AuctionPhase,
   currentTargetId: "member1",
 };
 
@@ -118,6 +121,31 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
 
   const minBidUnit = getMinBidUnit(mockCurrentBid.amount);
 
+  // Realtime 이벤트 핸들러
+  const handleRealtimeEvent = useCallback((event: { type: string; payload: Record<string, unknown> }) => {
+    switch (event.type) {
+      case "PHASE_CHANGE":
+        setPhase(event.payload.phase as AuctionPhase);
+        break;
+      // 추후 다른 이벤트 핸들러 추가 예정
+    }
+  }, []);
+
+  // Realtime 채널 연결
+  const { broadcast, isConnected } = useRoomChannel(mockRoom.id, handleRealtimeEvent);
+
+  // 다음 페이즈로 이동 (주최자용)
+  const handleNextPhase = useCallback(() => {
+    const phases: AuctionPhase[] = ["WAITING", "CAPTAIN_INTRO", "SHUFFLE", "AUCTION", "FINISHED"];
+    const currentIndex = phases.indexOf(phase);
+    if (currentIndex < phases.length - 1) {
+      const nextPhase = phases[currentIndex + 1];
+      setPhase(nextPhase);
+      // Realtime으로 다른 클라이언트에 브로드캐스트
+      broadcast("PHASE_CHANGE", { phase: nextPhase });
+    }
+  }, [phase, broadcast]);
+
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
     CAPTAIN_INTRO: { emoji: "📢", label: "팀장 소개", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/30" },
@@ -147,48 +175,13 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* 역할 선택 (테스트용) */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">역할:</span>
-              <select
-                value={currentRole}
-                onChange={(e) => setCurrentRole(e.target.value as ParticipantRole)}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium outline-none ${roleLabels[currentRole].color}`}
-              >
-                {roleOptions.map((role) => (
-                  <option key={role} value={role} className="bg-slate-800 text-slate-200">
-                    {roleLabels[role].label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 주최자 컨트롤 */}
-            {currentRole === "HOST" && (
-              <div className="flex items-center gap-2">
-                <motion.button
-                  className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-1.5 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    const phases: AuctionPhase[] = ["WAITING", "CAPTAIN_INTRO", "SHUFFLE", "AUCTION", "FINISHED"];
-                    const currentIndex = phases.indexOf(phase);
-                    if (currentIndex < phases.length - 1) {
-                      setPhase(phases[currentIndex + 1]);
-                    }
-                  }}
-                >
-                  다음 단계 →
-                </motion.button>
-                <motion.button
-                  className="rounded-lg border border-slate-600 bg-slate-800/50 px-4 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-700/50"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  일시정지
-                </motion.button>
-              </div>
-            )}
+            {/* 디버그 컨트롤 (역할/페이즈 선택) */}
+            <DebugControls
+              currentRole={currentRole}
+              currentPhase={phase}
+              onRoleChange={setCurrentRole}
+              onPhaseChange={setPhase}
+            />
           </div>
         </div>
 
@@ -208,16 +201,25 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
         {/* Left sidebar - Teams */}
         <aside className="w-64 shrink-0 overflow-y-auto border-r border-slate-700/50 bg-slate-900/50">
           <div className="p-4 pb-2 sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
-            <h2 className="text-sm font-semibold text-slate-400">팀별 현황</h2>
+            <h2 className="text-sm font-semibold text-slate-400">
+              {phase === "WAITING" ? "팀장 입장 현황" : "팀별 현황"}
+            </h2>
           </div>
           <div className="px-4 pb-4 space-y-3">
             {mockTeams.map((team) => {
               const captain = mockParticipants.find((p) => p.id === team.captainId);
               const members = mockParticipants.filter((p) => p.teamId === team.id && p.role === "MEMBER");
+              const isWaiting = phase === "WAITING";
               return (
                 <motion.div
                   key={team.id}
-                  className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-3"
+                  className={`rounded-xl border p-3 ${
+                    isWaiting
+                      ? captain?.isOnline
+                        ? "border-green-500/50 bg-green-500/10"
+                        : "border-slate-700/50 bg-slate-800/30"
+                      : "border-slate-700/50 bg-slate-800/30"
+                  }`}
                   whileHover={{ scale: 1.02 }}
                 >
                   <div className="flex items-center justify-between">
@@ -228,23 +230,38 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
                       />
                       <span className="font-semibold text-slate-200">{team.name}</span>
                     </div>
-                    <span className="text-sm font-medium text-amber-400">
-                      {team.currentPoints}p
-                    </span>
+                    {!isWaiting && (
+                      <span className="text-sm font-medium text-amber-400">
+                        {team.currentPoints}p
+                      </span>
+                    )}
                   </div>
                   <div className="mt-2 space-y-1 text-sm">
-                    <div className="flex items-center gap-1 text-slate-400">
+                    <div className="flex items-center gap-1">
                       <span className="text-amber-500">👑</span>
-                      <span>{captain?.nickname}</span>
-                      <span className="text-slate-500">({captain?.position})</span>
+                      <span className={captain?.isOnline ? "text-slate-300" : "text-slate-500"}>
+                        {captain?.nickname}
+                      </span>
+                      {isWaiting && (
+                        <span className={`ml-auto text-xs ${captain?.isOnline ? "text-green-400" : "text-slate-500"}`}>
+                          {captain?.isOnline ? "접속 중" : "대기 중"}
+                        </span>
+                      )}
+                      {!isWaiting && (
+                        <span className="text-slate-500">({captain?.position})</span>
+                      )}
                     </div>
-                    {members.map((m) => (
-                      <div key={m.id} className="ml-4 text-slate-500">
-                        └ {m.nickname} ({m.position})
-                      </div>
-                    ))}
-                    {members.length === 0 && (
-                      <div className="ml-4 text-slate-600">(팀원 없음)</div>
+                    {!isWaiting && (
+                      <>
+                        {members.map((m) => (
+                          <div key={m.id} className="ml-4 text-slate-500">
+                            └ {m.nickname} ({m.position})
+                          </div>
+                        ))}
+                        {members.length === 0 && (
+                          <div className="ml-4 text-slate-600">(팀원 없음)</div>
+                        )}
+                      </>
                     )}
                   </div>
                 </motion.div>
@@ -344,49 +361,12 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
               )}
 
               {phase === "WAITING" && (
-                <motion.div
-                  key="waiting"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex h-full flex-col items-center justify-center text-center"
-                >
-                  <div className="mb-4 text-6xl">⏳</div>
-                  <h2 className="text-2xl font-bold text-slate-200">참가자 입장 대기 중</h2>
-                  <p className="mt-2 text-slate-400">모든 팀장이 입장하면 경매를 시작할 수 있습니다</p>
-
-                  {/* 팀장 입장 현황 */}
-                  <div className="mt-8 rounded-xl border border-slate-700/50 bg-slate-800/30 p-6">
-                    <div className="mb-4 text-lg font-semibold text-amber-400">
-                      팀장 입장 현황: {mockParticipants.filter(p => p.role === "CAPTAIN" && p.isOnline).length}/{mockRoom.teamCount}
-                    </div>
-                    <div className="flex flex-wrap justify-center gap-3">
-                      {mockTeams.map((team) => {
-                        const captain = mockParticipants.find(p => p.id === team.captainId);
-                        const isOnline = captain?.isOnline;
-                        return (
-                          <div
-                            key={team.id}
-                            className={`rounded-lg border px-4 py-2 ${
-                              isOnline
-                                ? "border-green-500/50 bg-green-500/10 text-green-400"
-                                : "border-slate-700 bg-slate-800/50 text-slate-500"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={`h-2 w-2 rounded-full ${isOnline ? "bg-green-500" : "bg-slate-600"}`}
-                              />
-                              <span className="font-medium">{team.name}</span>
-                            </div>
-                            <div className="text-xs opacity-70">
-                              {captain?.nickname || "대기 중"}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </motion.div>
+                <WaitingPhase
+                  currentRole={currentRole}
+                  teams={mockTeams}
+                  participants={mockParticipants}
+                  onNextPhase={handleNextPhase}
+                />
               )}
 
               {/* 팀장 소개 페이즈 */}
@@ -548,41 +528,53 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
           )}
 
           {/* Next in queue - 전체 대기열 그리드 */}
-          <div className="shrink-0 border-t border-slate-700/50 bg-slate-900/50 px-6 py-4 max-h-[200px] overflow-y-auto">
-            <div className="mb-3 flex items-center gap-2 sticky top-0 bg-slate-900/90 py-1 -mt-1 backdrop-blur-sm">
-              <span className="text-sm font-semibold text-slate-400">📜 경매 대기열</span>
-              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
-                {mockAuctionQueue.length}명 대기
-              </span>
-            </div>
-            <div className="grid grid-cols-8 gap-2">
-              {mockAuctionQueue.map((member, index) => (
-                <motion.div
-                  key={member.id}
-                  className={`relative rounded-lg border px-2 py-2 text-center ${
-                    index === 0
-                      ? "border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/30"
-                      : "border-slate-700/50 bg-slate-800/30"
-                  }`}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.02 }}
-                  whileHover={{ scale: 1.05, y: -2, zIndex: 10 }}
-                >
-                  {/* 순서 뱃지 */}
-                  <div className={`absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
-                    index === 0
-                      ? "bg-amber-500 text-slate-900"
-                      : "bg-slate-700 text-slate-300"
-                  }`}>
-                    {member.order}
-                  </div>
-                  <div className="text-xs font-medium text-slate-200 truncate">{member.nickname}</div>
-                  <div className="text-[10px] text-slate-500 truncate">{member.position}</div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
+          {(() => {
+            const showOrder = phase === "SHUFFLE" || phase === "AUCTION" || phase === "FINISHED";
+            const queueTitle = showOrder ? "📜 경매 대기열" : "👥 경매 대상 팀원";
+            const queueBadge = showOrder
+              ? `${mockAuctionQueue.length}명 대기`
+              : `총 ${mockAuctionQueue.length}명`;
+
+            return (
+              <div className="shrink-0 border-t border-slate-700/50 bg-slate-900/50 px-6 py-4 max-h-[200px] overflow-y-auto">
+                <div className="mb-3 flex items-center gap-2 sticky top-0 bg-slate-900/90 py-1 -mt-1 backdrop-blur-sm">
+                  <span className="text-sm font-semibold text-slate-400">{queueTitle}</span>
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
+                    {queueBadge}
+                  </span>
+                </div>
+                <div className="grid grid-cols-8 gap-2">
+                  {mockAuctionQueue.map((member, index) => (
+                    <motion.div
+                      key={member.id}
+                      className={`relative rounded-lg border px-2 py-2 text-center ${
+                        showOrder && index === 0
+                          ? "border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/30"
+                          : "border-slate-700/50 bg-slate-800/30"
+                      }`}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: index * 0.02 }}
+                      whileHover={{ scale: 1.05, y: -2, zIndex: 10 }}
+                    >
+                      {/* 순서 뱃지 - 셔플 이후에만 표시 */}
+                      {showOrder && (
+                        <div className={`absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+                          index === 0
+                            ? "bg-amber-500 text-slate-900"
+                            : "bg-slate-700 text-slate-300"
+                        }`}>
+                          {member.order}
+                        </div>
+                      )}
+                      <div className="text-xs font-medium text-slate-200 truncate">{member.nickname}</div>
+                      <div className="text-[10px] text-slate-500 truncate">{member.position}</div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </main>
 
         {/* Right sidebar - Chat */}
