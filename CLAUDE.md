@@ -250,6 +250,12 @@ transition={{ duration: 0.8 }}
 3. 작업 완료 후 develop으로 PR/Merge
 4. develop → main 머지는 배포 준비 완료 시에만
 
+### Commit Rules
+- **커밋 전 반드시 사용자 확인 필요**
+- 작업 완료 시 테스트 방법을 함께 제공
+- 사용자가 직접 확인 후 커밋 허가를 받을 것
+- 무단 커밋 금지
+
 ### Example
 ```bash
 # 랜딩 페이지 작업 시작
