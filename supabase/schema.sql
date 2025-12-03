@@ -20,8 +20,6 @@ CREATE TABLE auction_rooms (
   phase auction_phase NOT NULL DEFAULT 'WAITING',
   current_target_id UUID,
   host_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
-  captain_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
-  member_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
   observer_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -34,6 +32,7 @@ CREATE TABLE teams (
   room_id UUID NOT NULL REFERENCES auction_rooms(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   captain_id UUID,
+  captain_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
   current_points INTEGER NOT NULL DEFAULT 1000,
   color TEXT NOT NULL DEFAULT '#3B82F6',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -51,6 +50,7 @@ CREATE TABLE participants (
   description TEXT,
   team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
   is_online BOOLEAN NOT NULL DEFAULT false,
+  is_confirmed BOOLEAN NOT NULL DEFAULT false,
   auction_order INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

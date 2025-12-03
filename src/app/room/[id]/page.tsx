@@ -16,68 +16,68 @@ const mockRoom = {
 };
 
 const mockTeams: Team[] = [
-  { id: "team1", roomId: "1", name: "1팀", captainId: "captain1", currentPoints: 850, color: "#EF4444" },
-  { id: "team2", roomId: "1", name: "2팀", captainId: "captain2", currentPoints: 720, color: "#F97316" },
-  { id: "team3", roomId: "1", name: "3팀", captainId: "captain3", currentPoints: 650, color: "#EAB308" },
-  { id: "team4", roomId: "1", name: "4팀", captainId: "captain4", currentPoints: 900, color: "#22C55E" },
-  { id: "team5", roomId: "1", name: "5팀", captainId: "captain5", currentPoints: 780, color: "#3B82F6" },
-  { id: "team6", roomId: "1", name: "6팀", captainId: "captain6", currentPoints: 820, color: "#8B5CF6" },
-  { id: "team7", roomId: "1", name: "7팀", captainId: "captain7", currentPoints: 690, color: "#EC4899" },
-  { id: "team8", roomId: "1", name: "8팀", captainId: "captain8", currentPoints: 750, color: "#06B6D4" },
+  { id: "team1", roomId: "1", name: "1팀", captainId: "captain1", captainCode: "abc1", currentPoints: 850, color: "#EF4444", createdAt: "" },
+  { id: "team2", roomId: "1", name: "2팀", captainId: "captain2", captainCode: "abc2", currentPoints: 720, color: "#F97316", createdAt: "" },
+  { id: "team3", roomId: "1", name: "3팀", captainId: "captain3", captainCode: "abc3", currentPoints: 650, color: "#EAB308", createdAt: "" },
+  { id: "team4", roomId: "1", name: "4팀", captainId: "captain4", captainCode: "abc4", currentPoints: 900, color: "#22C55E", createdAt: "" },
+  { id: "team5", roomId: "1", name: "5팀", captainId: "captain5", captainCode: "abc5", currentPoints: 780, color: "#3B82F6", createdAt: "" },
+  { id: "team6", roomId: "1", name: "6팀", captainId: "captain6", captainCode: "abc6", currentPoints: 820, color: "#8B5CF6", createdAt: "" },
+  { id: "team7", roomId: "1", name: "7팀", captainId: "captain7", captainCode: "abc7", currentPoints: 690, color: "#EC4899", createdAt: "" },
+  { id: "team8", roomId: "1", name: "8팀", captainId: "captain8", captainCode: "abc8", currentPoints: 750, color: "#06B6D4", createdAt: "" },
 ];
 
 const mockParticipants: Participant[] = [
   // 팀장 8명
-  { id: "captain1", roomId: "1", nickname: "Hide온bush", role: "CAPTAIN", position: "미드", description: "미드 장인", teamId: "team1", isOnline: true, createdAt: "" },
-  { id: "captain2", roomId: "1", nickname: "정글의신", role: "CAPTAIN", position: "정글", description: "정글 캐리", teamId: "team2", isOnline: true, createdAt: "" },
-  { id: "captain3", roomId: "1", nickname: "원딜마스터", role: "CAPTAIN", position: "원딜", description: "원딜 장인", teamId: "team3", isOnline: true, createdAt: "" },
-  { id: "captain4", roomId: "1", nickname: "서폿왕", role: "CAPTAIN", position: "서폿", description: "서폿 장인", teamId: "team4", isOnline: true, createdAt: "" },
-  { id: "captain5", roomId: "1", nickname: "탑라이너", role: "CAPTAIN", position: "탑", description: "탑 장인", teamId: "team5", isOnline: true, createdAt: "" },
-  { id: "captain6", roomId: "1", nickname: "올라운더", role: "CAPTAIN", position: "미드/정글", description: "듀얼 포지션", teamId: "team6", isOnline: true, createdAt: "" },
-  { id: "captain7", roomId: "1", nickname: "캐리장인", role: "CAPTAIN", position: "원딜", description: "팀 캐리 전문", teamId: "team7", isOnline: true, createdAt: "" },
-  { id: "captain8", roomId: "1", nickname: "샷콜러", role: "CAPTAIN", position: "서폿", description: "콜 담당", teamId: "team8", isOnline: false, createdAt: "" },
+  { id: "captain1", roomId: "1", nickname: "Hide온bush", role: "CAPTAIN", position: "미드", description: "미드 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain2", roomId: "1", nickname: "정글의신", role: "CAPTAIN", position: "정글", description: "정글 캐리", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain3", roomId: "1", nickname: "원딜마스터", role: "CAPTAIN", position: "원딜", description: "원딜 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain4", roomId: "1", nickname: "서폿왕", role: "CAPTAIN", position: "서폿", description: "서폿 장인", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain5", roomId: "1", nickname: "탑라이너", role: "CAPTAIN", position: "탑", description: "탑 장인", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain6", roomId: "1", nickname: "올라운더", role: "CAPTAIN", position: "미드/정글", description: "듀얼 포지션", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain7", roomId: "1", nickname: "캐리장인", role: "CAPTAIN", position: "원딜", description: "팀 캐리 전문", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: null, createdAt: "" },
+  { id: "captain8", roomId: "1", nickname: "샷콜러", role: "CAPTAIN", position: "서폿", description: "콜 담당", teamId: "team8", isOnline: false, isConfirmed: false, auctionOrder: null, createdAt: "" },
   // 팀원 32명 (경매 대상) - 25명 낙찰 완료, 7명 대기 중
   // 1팀: 4명 완료 (풀팀)
-  { id: "member1", roomId: "1", nickname: "페이커짱", role: "MEMBER", position: "미드", description: "미드 장인입니다", teamId: "team1", isOnline: true, createdAt: "" },
-  { id: "member2", roomId: "1", nickname: "쵸비팬", role: "MEMBER", position: "미드", description: "로밍 장인", teamId: "team1", isOnline: true, createdAt: "" },
-  { id: "member3", roomId: "1", nickname: "미드갓", role: "MEMBER", position: "미드", description: "암살자 장인", teamId: "team1", isOnline: true, createdAt: "" },
-  { id: "member4", roomId: "1", nickname: "컨트롤형", role: "MEMBER", position: "미드", description: "컨트롤 메이지", teamId: "team1", isOnline: true, createdAt: "" },
+  { id: "member1", roomId: "1", nickname: "페이커짱", role: "MEMBER", position: "미드", description: "미드 장인입니다", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 1, createdAt: "" },
+  { id: "member2", roomId: "1", nickname: "쵸비팬", role: "MEMBER", position: "미드", description: "로밍 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 2, createdAt: "" },
+  { id: "member3", roomId: "1", nickname: "미드갓", role: "MEMBER", position: "미드", description: "암살자 장인", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 3, createdAt: "" },
+  { id: "member4", roomId: "1", nickname: "컨트롤형", role: "MEMBER", position: "미드", description: "컨트롤 메이지", teamId: "team1", isOnline: true, isConfirmed: true, auctionOrder: 4, createdAt: "" },
   // 2팀: 4명 완료 (풀팀)
-  { id: "member5", roomId: "1", nickname: "정글러123", role: "MEMBER", position: "정글", description: "갱킹 마스터", teamId: "team2", isOnline: true, createdAt: "" },
-  { id: "member6", roomId: "1", nickname: "갱플전문", role: "MEMBER", position: "정글", description: "초반 갱 장인", teamId: "team2", isOnline: true, createdAt: "" },
-  { id: "member7", roomId: "1", nickname: "파밍러", role: "MEMBER", position: "정글", description: "파밍형 정글러", teamId: "team2", isOnline: true, createdAt: "" },
-  { id: "member8", roomId: "1", nickname: "오브젝터", role: "MEMBER", position: "정글", description: "오브젝트 전문", teamId: "team2", isOnline: true, createdAt: "" },
+  { id: "member5", roomId: "1", nickname: "정글러123", role: "MEMBER", position: "정글", description: "갱킹 마스터", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 5, createdAt: "" },
+  { id: "member6", roomId: "1", nickname: "갱플전문", role: "MEMBER", position: "정글", description: "초반 갱 장인", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 6, createdAt: "" },
+  { id: "member7", roomId: "1", nickname: "파밍러", role: "MEMBER", position: "정글", description: "파밍형 정글러", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 7, createdAt: "" },
+  { id: "member8", roomId: "1", nickname: "오브젝터", role: "MEMBER", position: "정글", description: "오브젝트 전문", teamId: "team2", isOnline: true, isConfirmed: true, auctionOrder: 8, createdAt: "" },
   // 3팀: 4명 완료 (풀팀)
-  { id: "member9", roomId: "1", nickname: "원딜고수", role: "MEMBER", position: "원딜", description: "캐리 가능", teamId: "team3", isOnline: true, createdAt: "" },
-  { id: "member10", roomId: "1", nickname: "한타충", role: "MEMBER", position: "원딜", description: "한타 장인", teamId: "team3", isOnline: true, createdAt: "" },
-  { id: "member11", roomId: "1", nickname: "라인전장인", role: "MEMBER", position: "원딜", description: "라인전 강자", teamId: "team3", isOnline: true, createdAt: "" },
-  { id: "member12", roomId: "1", nickname: "CS마스터", role: "MEMBER", position: "원딜", description: "CS 장인", teamId: "team3", isOnline: true, createdAt: "" },
+  { id: "member9", roomId: "1", nickname: "원딜고수", role: "MEMBER", position: "원딜", description: "캐리 가능", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 9, createdAt: "" },
+  { id: "member10", roomId: "1", nickname: "한타충", role: "MEMBER", position: "원딜", description: "한타 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 10, createdAt: "" },
+  { id: "member11", roomId: "1", nickname: "라인전장인", role: "MEMBER", position: "원딜", description: "라인전 강자", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 11, createdAt: "" },
+  { id: "member12", roomId: "1", nickname: "CS마스터", role: "MEMBER", position: "원딜", description: "CS 장인", teamId: "team3", isOnline: true, isConfirmed: true, auctionOrder: 12, createdAt: "" },
   // 4팀: 3명
-  { id: "member13", roomId: "1", nickname: "서폿장인", role: "MEMBER", position: "서폿", description: "시야 장인", teamId: "team4", isOnline: true, createdAt: "" },
-  { id: "member14", roomId: "1", nickname: "힐러장인", role: "MEMBER", position: "서폿", description: "인챈터 전문", teamId: "team4", isOnline: true, createdAt: "" },
-  { id: "member15", roomId: "1", nickname: "탱서폿", role: "MEMBER", position: "서폿", description: "탱커 서폿", teamId: "team4", isOnline: true, createdAt: "" },
+  { id: "member13", roomId: "1", nickname: "서폿장인", role: "MEMBER", position: "서폿", description: "시야 장인", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 13, createdAt: "" },
+  { id: "member14", roomId: "1", nickname: "힐러장인", role: "MEMBER", position: "서폿", description: "인챈터 전문", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 14, createdAt: "" },
+  { id: "member15", roomId: "1", nickname: "탱서폿", role: "MEMBER", position: "서폿", description: "탱커 서폿", teamId: "team4", isOnline: true, isConfirmed: true, auctionOrder: 15, createdAt: "" },
   // 5팀: 3명
-  { id: "member16", roomId: "1", nickname: "로밍서폿", role: "MEMBER", position: "서폿", description: "로밍 전문", teamId: "team5", isOnline: true, createdAt: "" },
-  { id: "member17", roomId: "1", nickname: "탑신병자", role: "MEMBER", position: "탑", description: "스플릿 장인", teamId: "team5", isOnline: true, createdAt: "" },
-  { id: "member18", roomId: "1", nickname: "딜탱커", role: "MEMBER", position: "탑", description: "딜탱 전문", teamId: "team5", isOnline: true, createdAt: "" },
+  { id: "member16", roomId: "1", nickname: "로밍서폿", role: "MEMBER", position: "서폿", description: "로밍 전문", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 16, createdAt: "" },
+  { id: "member17", roomId: "1", nickname: "탑신병자", role: "MEMBER", position: "탑", description: "스플릿 장인", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 17, createdAt: "" },
+  { id: "member18", roomId: "1", nickname: "딜탱커", role: "MEMBER", position: "탑", description: "딜탱 전문", teamId: "team5", isOnline: true, isConfirmed: true, auctionOrder: 18, createdAt: "" },
   // 6팀: 3명
-  { id: "member19", roomId: "1", nickname: "순탱유저", role: "MEMBER", position: "탑", description: "탱커 전문", teamId: "team6", isOnline: true, createdAt: "" },
-  { id: "member20", roomId: "1", nickname: "캐리탑", role: "MEMBER", position: "탑", description: "탑 캐리형", teamId: "team6", isOnline: true, createdAt: "" },
-  { id: "member21", roomId: "1", nickname: "미드or탑", role: "MEMBER", position: "미드/탑", description: "듀얼 포지션", teamId: "team6", isOnline: true, createdAt: "" },
+  { id: "member19", roomId: "1", nickname: "순탱유저", role: "MEMBER", position: "탑", description: "탱커 전문", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 19, createdAt: "" },
+  { id: "member20", roomId: "1", nickname: "캐리탑", role: "MEMBER", position: "탑", description: "탑 캐리형", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 20, createdAt: "" },
+  { id: "member21", roomId: "1", nickname: "미드or탑", role: "MEMBER", position: "미드/탑", description: "듀얼 포지션", teamId: "team6", isOnline: true, isConfirmed: true, auctionOrder: 21, createdAt: "" },
   // 7팀: 2명
-  { id: "member22", roomId: "1", nickname: "정글or서폿", role: "MEMBER", position: "정글/서폿", description: "유연한 픽", teamId: "team7", isOnline: true, createdAt: "" },
-  { id: "member23", roomId: "1", nickname: "원딜or미드", role: "MEMBER", position: "원딜/미드", description: "원거리 딜러", teamId: "team7", isOnline: true, createdAt: "" },
+  { id: "member22", roomId: "1", nickname: "정글or서폿", role: "MEMBER", position: "정글/서폿", description: "유연한 픽", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: 22, createdAt: "" },
+  { id: "member23", roomId: "1", nickname: "원딜or미드", role: "MEMBER", position: "원딜/미드", description: "원거리 딜러", teamId: "team7", isOnline: true, isConfirmed: true, auctionOrder: 23, createdAt: "" },
   // 8팀: 2명
-  { id: "member24", roomId: "1", nickname: "필포지션", role: "MEMBER", position: "ALL", description: "아무거나 가능", teamId: "team8", isOnline: true, createdAt: "" },
-  { id: "member25", roomId: "1", nickname: "뉴비1234", role: "MEMBER", position: "서폿", description: "열심히 하겠습니다", teamId: "team8", isOnline: true, createdAt: "" },
+  { id: "member24", roomId: "1", nickname: "필포지션", role: "MEMBER", position: "ALL", description: "아무거나 가능", teamId: "team8", isOnline: true, isConfirmed: true, auctionOrder: 24, createdAt: "" },
+  { id: "member25", roomId: "1", nickname: "뉴비1234", role: "MEMBER", position: "서폿", description: "열심히 하겠습니다", teamId: "team8", isOnline: true, isConfirmed: true, auctionOrder: 25, createdAt: "" },
   // 대기 중: 7명
-  { id: "member26", roomId: "1", nickname: "고인물99", role: "MEMBER", position: "정글", description: "10년차 정글러", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member27", roomId: "1", nickname: "플레장인", role: "MEMBER", position: "원딜", description: "플레 5회 달성", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member28", roomId: "1", nickname: "골드막이", role: "MEMBER", position: "탑", description: "골드 고인물", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member29", roomId: "1", nickname: "실버탈출", role: "MEMBER", position: "미드", description: "이번엔 골드간다", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member30", roomId: "1", nickname: "다이아찍자", role: "MEMBER", position: "정글", description: "다이아 목표", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member31", roomId: "1", nickname: "즐겜러", role: "MEMBER", position: "서폿", description: "재미있게 합시다", teamId: null, isOnline: true, createdAt: "" },
-  { id: "member32", roomId: "1", nickname: "트롤아님", role: "MEMBER", position: "탑/정글", description: "진지하게 합니다", teamId: null, isOnline: true, createdAt: "" },
+  { id: "member26", roomId: "1", nickname: "고인물99", role: "MEMBER", position: "정글", description: "10년차 정글러", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 26, createdAt: "" },
+  { id: "member27", roomId: "1", nickname: "플레장인", role: "MEMBER", position: "원딜", description: "플레 5회 달성", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 27, createdAt: "" },
+  { id: "member28", roomId: "1", nickname: "골드막이", role: "MEMBER", position: "탑", description: "골드 고인물", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 28, createdAt: "" },
+  { id: "member29", roomId: "1", nickname: "실버탈출", role: "MEMBER", position: "미드", description: "이번엔 골드간다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 29, createdAt: "" },
+  { id: "member30", roomId: "1", nickname: "다이아찍자", role: "MEMBER", position: "정글", description: "다이아 목표", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 30, createdAt: "" },
+  { id: "member31", roomId: "1", nickname: "즐겜러", role: "MEMBER", position: "서폿", description: "재미있게 합시다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 31, createdAt: "" },
+  { id: "member32", roomId: "1", nickname: "트롤아님", role: "MEMBER", position: "탑/정글", description: "진지하게 합니다", teamId: null, isOnline: true, isConfirmed: true, auctionOrder: 32, createdAt: "" },
 ];
 
 // 역할 목록 (테스트용)
@@ -587,14 +587,9 @@ export default function AuctionRoom({ params }: { params: { id: string } }) {
 
         {/* Right sidebar - Chat */}
         <aside className="flex w-80 shrink-0 min-h-0 flex-col border-l border-slate-700/50 bg-slate-900/50">
-          {/* Chat tabs */}
-          <div className="flex shrink-0 border-b border-slate-700/50">
-            <button className="flex-1 border-b-2 border-amber-500 py-3 text-sm font-medium text-amber-400">
-              전체
-            </button>
-            <button className="flex-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-400">
-              팀 채팅
-            </button>
+          {/* Chat header */}
+          <div className="flex shrink-0 items-center justify-center border-b border-slate-700/50 py-3">
+            <span className="text-sm font-medium text-amber-400">전체 채팅</span>
           </div>
 
           {/* Chat messages */}
