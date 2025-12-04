@@ -3,8 +3,8 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-// 채팅 메시지 타입
-interface ChatMessage {
+// Realtime 채팅 메시지 타입 (Broadcast용)
+interface RealtimeChatMessage {
   id: string;
   sender: string;
   content: string;
@@ -45,7 +45,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [revealedCount, setRevealedCount] = useState(0);
   const [animationSeed, setAnimationSeed] = useState<number | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<RealtimeChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [announceInput, setAnnounceInput] = useState("");
@@ -330,7 +330,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     }
 
     const timestamp = Date.now();
-    const newMessage: ChatMessage = {
+    const newMessage: RealtimeChatMessage = {
       id: `${timestamp}-${Math.random().toString(36).slice(2)}`,
       sender: senderNickname,
       content: chatInput.trim(),
