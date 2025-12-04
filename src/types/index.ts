@@ -45,6 +45,7 @@ export interface Team {
   name: string;
   captainId: string | null;
   captainCode: string;
+  captainPoints: number; // 팀장 포인트 (가치)
   currentPoints: number;
   color: string;
   createdAt: string;
@@ -85,6 +86,10 @@ export interface AuctionResult {
 // Realtime 이벤트 타입
 export type RealtimeEventType =
   | "PHASE_CHANGE"
+  | "CAPTAIN_INDEX_CHANGE"
+  | "SHUFFLE_START"
+  | "SHUFFLE_REVEAL"
+  | "SHUFFLE_COMPLETE"
   | "AUCTION_START"
   | "BID"
   | "TIMER_SYNC"
