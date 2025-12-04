@@ -94,8 +94,80 @@ export type RealtimeEventType =
   | "BID"
   | "TIMER_SYNC"
   | "SOLD"
+  | "PASSED"
   | "CHAT"
   | "ANNOUNCE";
+
+// AUCTION 페이즈 Realtime 이벤트 페이로드
+export interface AuctionStartPayload {
+  targetId: string;
+  targetIndex: number;
+  totalTargets: number;
+  startTime: number;
+}
+
+export interface BidPayload {
+  teamId: string;
+  teamName: string;
+  teamColor: string;
+  amount: number;
+  timestamp: number;
+  newTimer: number;
+}
+
+export interface SoldPayload {
+  targetId: string;
+  targetNickname: string;
+  winnerTeamId: string;
+  winnerTeamName: string;
+  winnerTeamColor: string;
+  finalPrice: number;
+  nextTargetId: string | null;
+  updatedPoints: Record<string, number>;
+  isAutoAssignment?: boolean;
+  auctionOrder: number;
+}
+
+export interface PassedPayload {
+  targetId: string;
+  nextTargetId: string;
+  newQueue: string[];
+}
+
+// AUCTION 페이즈 상태
+export interface BidRecord {
+  teamId: string;
+  teamName: string;
+  teamColor: string;
+  amount: number;
+  timestamp: number;
+}
+
+export interface SoldInfo {
+  targetId: string;
+  targetNickname: string;
+  winnerTeamId: string;
+  winnerTeamName: string;
+  winnerTeamColor: string;
+  finalPrice: number;
+  isAutoAssignment?: boolean;
+}
+
+export interface AuctionState {
+  currentTargetId: string | null;
+  currentTargetIndex: number;
+  totalTargets: number;
+  auctionQueue: string[];
+  timer: number;
+  timerRunning: boolean;
+  currentPrice: number;
+  highestBidTeamId: string | null;
+  bidHistory: BidRecord[];
+  bidLockUntil: number;
+  showSoldAnimation: boolean;
+  lastSoldInfo: SoldInfo | null;
+  completedCount: number;
+}
 
 export interface RealtimeEvent {
   type: RealtimeEventType;
