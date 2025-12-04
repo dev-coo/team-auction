@@ -45,6 +45,7 @@ export interface Team {
   name: string;
   captainId: string | null;
   captainCode: string;
+  captainPoints: number; // 팀장 포인트 (가치)
   currentPoints: number;
   color: string;
   createdAt: string;

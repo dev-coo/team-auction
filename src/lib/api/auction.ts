@@ -10,6 +10,7 @@ interface CaptainInput {
   nickname: string;
   position: string;
   description?: string;
+  points: number; // 팀장 포인트 (가치)
 }
 
 interface MemberInput {
@@ -70,11 +71,12 @@ export async function createAuction(
     throw new Error(`경매방 생성 실패: ${roomError.message}`);
   }
 
-  // 2. 팀 생성
+  // 2. 팀 생성 (팀장 포인트 반영)
   const teamsToInsert = Array.from({ length: teamCount }, (_, i) => ({
     room_id: room.id,
     name: `${i + 1}팀`,
-    current_points: totalPoints,
+    captain_points: captains[i]?.points || 0,
+    current_points: totalPoints - (captains[i]?.points || 0),
     color: TEAM_COLORS[i % TEAM_COLORS.length],
   }));
 
@@ -165,6 +167,7 @@ export async function createAuction(
       name: team.name,
       captainId: team.captain_id,
       captainCode: team.captain_code,
+      captainPoints: team.captain_points,
       currentPoints: team.current_points,
       color: team.color,
       createdAt: team.created_at,
@@ -257,6 +260,7 @@ export async function getTeamByCaptainCode(code: string) {
       name: team.name,
       captainId: team.captain_id,
       captainCode: team.captain_code,
+      captainPoints: team.captain_points,
       currentPoints: team.current_points,
       color: team.color,
       createdAt: team.created_at,
@@ -303,6 +307,7 @@ export async function getTeamsByRoomId(roomId: string) {
     name: team.name,
     captainId: team.captain_id,
     captainCode: team.captain_code,
+    captainPoints: team.captain_points,
     currentPoints: team.current_points,
     color: team.color,
     createdAt: team.created_at,

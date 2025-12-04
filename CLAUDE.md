@@ -124,6 +124,9 @@ useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
 - **Timer**: 15초 시작, 입찰마다 +2초 (고정값, `src/lib/constants.ts`)
 - **Bid Unit**: 0~99 → +5p, 100~199 → +10p, 200~299 → +15p, 400+ → 100마다 +5p
 - 입찰 단위 계산: `getMinBidUnit()`, `getNextMinBid()` (`src/lib/auction-utils.ts`)
+- **Captain Points**: 팀장별 개별 포인트 설정 가능 (기본값 0)
+  - 팀 시작 포인트 = 총 포인트 - 팀장 포인트
+  - 예: 총 1000p, 팀장 200p → 해당 팀 800p로 시작
 
 ## Database Setup
 

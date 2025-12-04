@@ -33,6 +33,7 @@ CREATE TABLE teams (
   name TEXT NOT NULL,
   captain_id UUID,
   captain_code TEXT UNIQUE DEFAULT encode(gen_random_bytes(4), 'hex'),
+  captain_points INTEGER NOT NULL DEFAULT 0,  -- 팀장 포인트 (팀 시작 포인트에서 차감)
   current_points INTEGER NOT NULL DEFAULT 1000,
   color TEXT NOT NULL DEFAULT '#3B82F6',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -25,6 +25,7 @@ interface PersonInput {
   nickname: string;
   position: string;
   description: string;
+  points: number; // 팀장 포인트 (기본값 0)
 }
 
 interface CreateResult {
@@ -45,14 +46,14 @@ export default function CreateAuction() {
   const [captains, setCaptains] = useState<PersonInput[]>(
     Array(5)
       .fill(null)
-      .map(() => ({ nickname: "", position: "", description: "" }))
+      .map(() => ({ nickname: "", position: "", description: "", points: 0 }))
   );
 
   // 팀원 목록 (팀수 × (팀당인원-1)로 고정)
   const [members, setMembers] = useState<PersonInput[]>(
     Array(5 * (4 - 1))
       .fill(null)
-      .map(() => ({ nickname: "", position: "", description: "" }))
+      .map(() => ({ nickname: "", position: "", description: "", points: 0 }))
   );
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -152,7 +153,7 @@ export default function CreateAuction() {
             ...prev,
             ...Array(count - prev.length)
               .fill(null)
-              .map(() => ({ nickname: "", position: "", description: "" })),
+              .map(() => ({ nickname: "", position: "", description: "", points: 0 })),
           ];
         } else {
           return prev.slice(0, count);
@@ -166,7 +167,7 @@ export default function CreateAuction() {
             ...prev,
             ...Array(newMemberCount - prev.length)
               .fill(null)
-              .map(() => ({ nickname: "", position: "", description: "" })),
+              .map(() => ({ nickname: "", position: "", description: "", points: 0 })),
           ];
         } else {
           return prev.slice(0, newMemberCount);
@@ -184,7 +185,7 @@ export default function CreateAuction() {
             ...prev,
             ...Array(newMemberCount - prev.length)
               .fill(null)
-              .map(() => ({ nickname: "", position: "", description: "" })),
+              .map(() => ({ nickname: "", position: "", description: "", points: 0 })),
           ];
         } else {
           return prev.slice(0, newMemberCount);
@@ -206,7 +207,7 @@ export default function CreateAuction() {
   const handleCaptainChange = (
     index: number,
     field: keyof PersonInput,
-    value: string
+    value: string | number
   ) => {
     setCaptains((prev) =>
       prev.map((captain, i) =>
@@ -251,6 +252,12 @@ export default function CreateAuction() {
       if (!captain.nickname.trim()) {
         newErrors[`captain_${i}`] = `${i + 1}팀 팀장 이름을 입력해주세요`;
       }
+      if (captain.points >= formData.totalPoints) {
+        newErrors[`captain_points_${i}`] = `${i + 1}팀 팀장 포인트가 총 포인트보다 작아야 합니다`;
+      }
+      if (captain.points < 0) {
+        newErrors[`captain_points_${i}`] = `${i + 1}팀 팀장 포인트는 0 이상이어야 합니다`;
+      }
     });
 
     // 팀원 검사 (모두 필수)
@@ -284,6 +291,7 @@ export default function CreateAuction() {
           nickname: c.nickname.trim(),
           position: c.position.trim(),
           description: c.description.trim() || undefined,
+          points: c.points,
         })),
         members: validMembers.map((m) => ({
           nickname: m.nickname.trim(),
@@ -478,7 +486,7 @@ export default function CreateAuction() {
                       handleCaptainChange(index, "position", e.target.value)
                     }
                     placeholder="포지션"
-                    className="col-span-3 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none transition-all"
+                    className="col-span-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none transition-all"
                   />
                   <input
                     type="text"
@@ -487,7 +495,17 @@ export default function CreateAuction() {
                       handleCaptainChange(index, "description", e.target.value)
                     }
                     placeholder="한줄소개"
-                    className="col-span-5 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none transition-all"
+                    className="col-span-4 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none transition-all"
+                  />
+                  <input
+                    type="number"
+                    value={captain.points}
+                    onChange={(e) =>
+                      handleCaptainChange(index, "points", Number(e.target.value) || 0)
+                    }
+                    placeholder="포인트"
+                    min="0"
+                    className="col-span-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none transition-all"
                   />
                 </div>
               ))}
@@ -593,6 +611,18 @@ export default function CreateAuction() {
                 {formData.teamCount * (formData.memberPerTeam - 1)}명
               </span>
             </p>
+            {captains.some((c) => c.points > 0) && (
+              <p className="text-sm text-slate-400">
+                각 팀 시작 포인트 ={" "}
+                <span className="font-semibold text-amber-400">
+                  {formData.totalPoints}p
+                </span>
+                {" - "}해당 팀장 포인트
+                <span className="text-slate-500 ml-2">
+                  (예: 팀장 200p → 팀 {formData.totalPoints - 200}p)
+                </span>
+              </p>
+            )}
             <p className="text-xs text-slate-500">
               생성 후 주최자 링크, 팀장별 링크, 옵저버 공용 링크가 생성됩니다.
             </p>
