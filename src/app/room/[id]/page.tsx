@@ -595,6 +595,12 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
       const now = Date.now();
 
+      // 현재 최고 입찰자와 동일하면 입찰 불가
+      if (auctionState.highestBidTeamId === myTeam.id) {
+        console.log("이미 최고 입찰자입니다");
+        return;
+      }
+
       // 500ms 락 체크
       if (now < auctionState.bidLockUntil) {
         console.log("입찰 처리 중...");
@@ -743,10 +749,11 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       // 자동 배정 처리
       const lastMemberId = remainingQueue[0];
       const lastMember = participantsWithOnlineStatus.find((p) => p.id === lastMemberId);
+      // 팀원이 아직 가득 차지 않은 팀 찾기 (memberPerTeam은 팀장 포함이므로 -1)
       const availableTeam = teams.find(
         (t) =>
           participantsWithOnlineStatus.filter((p) => p.teamId === t.id && p.role === "MEMBER")
-            .length < room!.memberPerTeam
+            .length < room!.memberPerTeam - 1
       );
 
       if (lastMember && availableTeam) {
