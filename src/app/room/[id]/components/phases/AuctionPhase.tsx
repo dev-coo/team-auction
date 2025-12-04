@@ -259,32 +259,24 @@ export default function AuctionPhase({
             </span>
           </div>
 
-          {/* 최소입찰 버튼들 */}
-          <div className="mb-4 flex justify-center gap-3">
-            {[1, 2, 3].map((multiplier) => {
-              const bidAmount = currentPrice + minBidUnit * multiplier;
-              const disabled = !timerRunning || bidAmount > myTeam.currentPoints;
-              return (
-                <motion.button
-                  key={multiplier}
-                  className={`rounded-full px-6 py-3 text-lg font-bold shadow-lg transition-colors ${
-                    disabled
-                      ? "cursor-not-allowed bg-slate-700 text-slate-500"
-                      : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-900 shadow-amber-500/30"
-                  }`}
-                  whileHover={disabled ? {} : { scale: 1.05 }}
-                  whileTap={disabled ? {} : { scale: 0.95 }}
-                  onClick={() => !disabled && onBid(bidAmount)}
-                  disabled={disabled}
-                >
-                  +{minBidUnit * multiplier}p
-                </motion.button>
-              );
-            })}
-          </div>
+          {/* 입찰 UI - 최소입찰 버튼 1개 + 직접입찰 */}
+          <div className="flex items-center justify-center gap-3">
+            {/* 최소입찰 버튼 */}
+            <motion.button
+              className={`rounded-full px-6 py-3 text-lg font-bold shadow-lg transition-colors ${
+                !timerRunning || nextMinBid > myTeam.currentPoints
+                  ? "cursor-not-allowed bg-slate-700 text-slate-500"
+                  : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-900 shadow-amber-500/30"
+              }`}
+              whileHover={!timerRunning || nextMinBid > myTeam.currentPoints ? {} : { scale: 1.05 }}
+              whileTap={!timerRunning || nextMinBid > myTeam.currentPoints ? {} : { scale: 0.95 }}
+              onClick={() => onBid(nextMinBid)}
+              disabled={!timerRunning || nextMinBid > myTeam.currentPoints}
+            >
+              +{minBidUnit}p
+            </motion.button>
 
-          {/* 직접 입찰 */}
-          <div className="flex items-center justify-center gap-2">
+            {/* 직접 입찰 */}
             <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/50 px-4">
               <input
                 type="number"
@@ -327,14 +319,14 @@ export default function AuctionPhase({
             </p>
           )}
         </div>
-      ) : (
+      ) : currentRole !== "HOST" ? (
         <div className="flex flex-col items-center gap-2">
           <div className="rounded-full bg-slate-800/50 px-6 py-3 text-slate-400">
             👀 관전 중
           </div>
           <p className="text-sm text-slate-500">팀장만 입찰할 수 있습니다</p>
         </div>
-      )}
+      ) : null}
 
       {/* 주최자 컨트롤 */}
       {currentRole === "HOST" && (
