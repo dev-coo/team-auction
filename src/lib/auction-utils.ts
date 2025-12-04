@@ -94,3 +94,19 @@ export function formatTime(seconds: number): string {
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
+
+/**
+ * 시드 기반 난수 생성기 (Mulberry32 알고리즘)
+ * 같은 시드를 사용하면 모든 클라이언트에서 동일한 난수 시퀀스 생성
+ * @param seed 초기 시드값
+ * @returns 0~1 사이의 난수를 반환하는 함수
+ */
+export function createSeededRandom(seed: number): () => number {
+  let state = seed;
+  return function () {
+    let t = (state += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
