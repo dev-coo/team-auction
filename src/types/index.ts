@@ -85,6 +85,7 @@ export interface AuctionResult {
 // Realtime 이벤트 타입
 export type RealtimeEventType =
   | "PHASE_CHANGE"
+  | "CAPTAIN_INDEX_CHANGE"
   | "AUCTION_START"
   | "BID"
   | "TIMER_SYNC"
