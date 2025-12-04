@@ -7,6 +7,7 @@ import { useRoomChannel, usePresence } from "@/lib/realtime";
 import { getAuctionById, getTeamsByRoomId, getParticipantsByRoomId } from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
+import CaptainIntroPhase from "./components/phases/CaptainIntroPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 
 // 역할 목록 (테스트용)
@@ -28,6 +29,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [currentRole, setCurrentRole] = useState<ParticipantRole>("OBSERVER"); // 기본값 OBSERVER
   const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
   const [timer, setTimer] = useState(12);
+  const [captainIntroIndex, setCaptainIntroIndex] = useState(0); // 팀장 소개 인덱스
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { id: "1", sender: "팀장A", content: "이번엔 내가 간다", teamId: null },
@@ -191,6 +193,13 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     switch (event.type) {
       case "PHASE_CHANGE":
         setPhase(event.payload.phase as AuctionPhase);
+        // 페이즈 변경 시 captainIntroIndex 초기화
+        if (event.payload.phase === "CAPTAIN_INTRO") {
+          setCaptainIntroIndex(0);
+        }
+        break;
+      case "CAPTAIN_INDEX_CHANGE":
+        setCaptainIntroIndex(event.payload.index as number);
         break;
       // 추후 다른 이벤트 핸들러 추가 예정
     }
@@ -206,10 +215,28 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     if (currentIndex < phases.length - 1) {
       const nextPhase = phases[currentIndex + 1];
       setPhase(nextPhase);
+      // captainIntroIndex 초기화
+      if (nextPhase === "CAPTAIN_INTRO") {
+        setCaptainIntroIndex(0);
+      }
       // Realtime으로 다른 클라이언트에 브로드캐스트
       broadcast("PHASE_CHANGE", { phase: nextPhase });
     }
   }, [phase, broadcast]);
+
+  // 다음 팀장 소개 (주최자용)
+  const handleNextCaptain = useCallback(() => {
+    const isLastCaptain = captainIntroIndex === teams.length - 1;
+    if (isLastCaptain) {
+      // 마지막 팀장이면 다음 페이즈로
+      handleNextPhase();
+    } else {
+      // 다음 팀장으로
+      const nextIndex = captainIntroIndex + 1;
+      setCaptainIntroIndex(nextIndex);
+      broadcast("CAPTAIN_INDEX_CHANGE", { index: nextIndex });
+    }
+  }, [captainIntroIndex, teams.length, broadcast, handleNextPhase]);
 
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
@@ -477,52 +504,14 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                 />
               )}
 
-              {/* 팀장 소개 페이즈 */}
               {phase === "CAPTAIN_INTRO" && (
-                <motion.div
-                  key="captain-intro"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex h-full flex-col items-center py-8"
-                >
-                  <h2 className="mb-2 text-3xl font-bold text-slate-200">팀장 소개</h2>
-                  <p className="mb-8 text-slate-400">각 팀을 이끌 팀장들을 소개합니다</p>
-
-                  <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {teams.map((team, index) => {
-                      const captain = participantsWithOnlineStatus.find(p => p.id === team.captainId);
-                      return (
-                        <motion.div
-                          key={team.id}
-                          className="rounded-2xl border border-slate-700/50 bg-slate-800/30 p-6 text-center"
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                          whileHover={{ scale: 1.02, y: -5 }}
-                        >
-                          <div
-                            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full text-3xl"
-                            style={{ backgroundColor: `${team.color}20` }}
-                          >
-                            👑
-                          </div>
-                          <div className="mb-1 text-xl font-bold text-slate-200">
-                            {captain?.nickname}
-                          </div>
-                          <div
-                            className="mb-2 inline-block rounded-full px-3 py-1 text-sm font-medium"
-                            style={{ backgroundColor: `${team.color}20`, color: team.color }}
-                          >
-                            {team.name} · {captain?.position}
-                          </div>
-                          <p className="text-sm text-slate-400">
-                            &ldquo;{captain?.description}&rdquo;
-                          </p>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
+                <CaptainIntroPhase
+                  currentRole={currentRole}
+                  teams={teams}
+                  participants={participantsWithOnlineStatus}
+                  currentIndex={captainIntroIndex}
+                  onNextCaptain={handleNextCaptain}
+                />
               )}
 
               {/* 셔플 페이즈 */}
