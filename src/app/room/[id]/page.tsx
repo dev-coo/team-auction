@@ -8,7 +8,9 @@ import { getAuctionById, getTeamsByRoomId, getParticipantsByRoomId } from "@/lib
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
 import CaptainIntroPhase from "./components/phases/CaptainIntroPhase";
+import ShufflePhase, { ShuffleState } from "./components/phases/ShufflePhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
+import { shuffleArray } from "@/lib/auction-utils";
 
 // 역할 목록 (테스트용)
 const roleOptions: ParticipantRole[] = ["HOST", "CAPTAIN", "MEMBER", "OBSERVER"];
@@ -30,6 +32,10 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
   const [timer, setTimer] = useState(12);
   const [captainIntroIndex, setCaptainIntroIndex] = useState(0); // 팀장 소개 인덱스
+  const [shuffleState, setShuffleState] = useState<ShuffleState>("GATHER");
+  const [shuffledOrder, setShuffledOrder] = useState<string[] | null>(null);
+  const [revealedCount, setRevealedCount] = useState(0);
+  const [animationSeed, setAnimationSeed] = useState<number | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { id: "1", sender: "팀장A", content: "이번엔 내가 간다", teamId: null },
@@ -193,13 +199,32 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     switch (event.type) {
       case "PHASE_CHANGE":
         setPhase(event.payload.phase as AuctionPhase);
-        // 페이즈 변경 시 captainIntroIndex 초기화
+        // 페이즈 변경 시 상태 초기화
         if (event.payload.phase === "CAPTAIN_INTRO") {
           setCaptainIntroIndex(0);
+        }
+        if (event.payload.phase === "SHUFFLE") {
+          setShuffleState("GATHER");
+          setShuffledOrder(null);
+          setRevealedCount(0);
+          setAnimationSeed(null);
         }
         break;
       case "CAPTAIN_INDEX_CHANGE":
         setCaptainIntroIndex(event.payload.index as number);
+        break;
+      case "SHUFFLE_START":
+        setShuffledOrder(event.payload.shuffledOrder as string[]);
+        setAnimationSeed(event.payload.seed as number);
+        setShuffleState("SHUFFLING");
+        // 10초 후 REVEALING 상태로 전환
+        setTimeout(() => setShuffleState("REVEALING"), 10000);
+        break;
+      case "SHUFFLE_REVEAL":
+        setRevealedCount(event.payload.count as number);
+        break;
+      case "SHUFFLE_COMPLETE":
+        setShuffleState("COMPLETE");
         break;
       // 추후 다른 이벤트 핸들러 추가 예정
     }
@@ -237,6 +262,38 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       broadcast("CAPTAIN_INDEX_CHANGE", { index: nextIndex });
     }
   }, [captainIntroIndex, teams.length, broadcast, handleNextPhase]);
+
+  // 셔플 시작 (주최자용)
+  const handleStartShuffle = useCallback(() => {
+    const members = participantsWithOnlineStatus.filter(
+      (p) => p.role === "MEMBER" && p.teamId === null
+    );
+    const shuffled = shuffleArray(members.map((m) => m.id));
+    const seed = Date.now();
+
+    setShuffledOrder(shuffled);
+    setAnimationSeed(seed);
+    setShuffleState("SHUFFLING");
+
+    broadcast("SHUFFLE_START", { shuffledOrder: shuffled, seed });
+
+    // 10초 후 REVEALING 시작
+    setTimeout(() => {
+      setShuffleState("REVEALING");
+      // 0.5초마다 한 장씩 공개
+      let count = 0;
+      const revealInterval = setInterval(() => {
+        count++;
+        setRevealedCount(count);
+        broadcast("SHUFFLE_REVEAL", { count });
+        if (count >= shuffled.length) {
+          clearInterval(revealInterval);
+          setShuffleState("COMPLETE");
+          broadcast("SHUFFLE_COMPLETE", {});
+        }
+      }, 500);
+    }, 10000);
+  }, [participantsWithOnlineStatus, broadcast]);
 
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
@@ -516,56 +573,18 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
               {/* 셔플 페이즈 */}
               {phase === "SHUFFLE" && (
-                <motion.div
-                  key="shuffle"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex h-full flex-col items-center justify-center"
-                >
-                  <h2 className="mb-2 text-3xl font-bold text-slate-200">팀원 순서 셔플</h2>
-                  <p className="mb-8 text-slate-400">경매 순서를 무작위로 정합니다</p>
-
-                  <div className="relative flex flex-wrap justify-center gap-3">
-                    {auctionQueue.map((member, index) => (
-                      <motion.div
-                        key={member.id}
-                        className="relative rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3"
-                        initial={{
-                          x: Math.random() * 200 - 100,
-                          y: Math.random() * 200 - 100,
-                          rotate: Math.random() * 30 - 15,
-                          opacity: 0
-                        }}
-                        animate={{
-                          x: 0,
-                          y: 0,
-                          rotate: 0,
-                          opacity: 1
-                        }}
-                        transition={{
-                          delay: index * 0.1,
-                          type: "spring",
-                          stiffness: 100
-                        }}
-                      >
-                        <div className="absolute -top-2 -left-2 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-slate-900">
-                          {index + 1}
-                        </div>
-                        <div className="text-sm font-medium text-slate-200">{member.nickname}</div>
-                        <div className="text-xs text-slate-500">{member.position}</div>
-                      </motion.div>
-                    ))}
-                  </div>
-
-                  <motion.p
-                    className="mt-8 text-amber-400"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: auctionQueue.length * 0.1 + 0.5 }}
-                  >
-                    ✨ 순서가 결정되었습니다!
-                  </motion.p>
-                </motion.div>
+                <ShufflePhase
+                  currentRole={currentRole}
+                  members={participantsWithOnlineStatus.filter(
+                    (p) => p.role === "MEMBER" && p.teamId === null
+                  )}
+                  shuffledOrder={shuffledOrder}
+                  shuffleState={shuffleState}
+                  revealedCount={revealedCount}
+                  animationSeed={animationSeed}
+                  onStartShuffle={handleStartShuffle}
+                  onNextPhase={handleNextPhase}
+                />
               )}
 
               {/* 경매 종료 페이즈 */}
