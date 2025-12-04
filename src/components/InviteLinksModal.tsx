@@ -9,12 +9,14 @@ interface InviteLinksModalProps {
   room: AuctionRoom;
   teams: (Team & { captain: Participant })[];
   onClose: () => void;
+  closeable?: boolean;
 }
 
 export default function InviteLinksModal({
   room,
   teams,
   onClose,
+  closeable = true,
 }: InviteLinksModalProps) {
   const router = useRouter();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function InviteLinksModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={closeable ? onClose : undefined}
       >
         <motion.div
           className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-700/50 bg-slate-900 p-6 shadow-2xl"
@@ -171,18 +173,21 @@ export default function InviteLinksModal({
 
           {/* 버튼 */}
           <div className="mt-6 flex gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 rounded-full border border-slate-600 bg-slate-800/50 px-6 py-3 font-semibold text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-700/50"
-            >
-              닫기
-            </button>
-            <button
-              onClick={handleEnterRoom}
-              className="flex-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-6 py-3 font-bold text-slate-900 shadow-xl shadow-amber-500/30 transition-all hover:shadow-amber-500/50"
-            >
-              바로 입장하기
-            </button>
+            {closeable ? (
+              <button
+                onClick={onClose}
+                className="flex-1 rounded-full border border-slate-600 bg-slate-800/50 px-6 py-3 font-semibold text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-700/50"
+              >
+                닫기
+              </button>
+            ) : (
+              <button
+                onClick={handleEnterRoom}
+                className="flex-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-6 py-3 font-bold text-slate-900 shadow-xl shadow-amber-500/30 transition-all hover:shadow-amber-500/50"
+              >
+                바로 입장하기
+              </button>
+            )}
           </div>
         </motion.div>
       </motion.div>

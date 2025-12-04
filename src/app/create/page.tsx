@@ -683,6 +683,7 @@ export default function CreateAuction() {
           room={createResult.room}
           teams={createResult.teams}
           onClose={() => setShowModal(false)}
+          closeable={false}
         />
       )}
 

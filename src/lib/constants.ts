@@ -37,7 +37,6 @@ export const TEAM_COLORS = [
 export const getChannelName = {
   room: (roomId: string) => `room:${roomId}`,
   presence: (roomId: string) => `presence:${roomId}`,
-  team: (teamId: string) => `team:${teamId}`,
 } as const;
 
 // Realtime 이벤트 타입

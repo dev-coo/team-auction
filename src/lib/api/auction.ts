@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { AuctionRoom, Team, Participant } from "@/types";
+import { AuctionRoom, Team, Participant, Bid, AuctionResult } from "@/types";
 import { TEAM_COLORS } from "@/lib/constants";
 
 // ============================================
@@ -366,4 +366,227 @@ function mapParticipantToType(data: any): Participant {
     auctionOrder: data.auction_order,
     createdAt: data.created_at,
   };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapBidToType(data: any): Bid {
+  return {
+    id: data.id,
+    roomId: data.room_id,
+    teamId: data.team_id,
+    targetId: data.target_id,
+    amount: data.amount,
+    createdAt: data.created_at,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAuctionResultToType(data: any): AuctionResult {
+  return {
+    id: data.id,
+    roomId: data.room_id,
+    targetId: data.target_id,
+    winnerTeamId: data.winner_team_id,
+    finalPrice: data.final_price,
+    order: data.auction_order,
+    createdAt: data.created_at,
+  };
+}
+
+// ============================================
+// AUCTION 페이즈 API
+// ============================================
+
+/**
+ * 입찰 기록 생성
+ */
+export async function createBid(params: {
+  roomId: string;
+  teamId: string;
+  targetId: string;
+  amount: number;
+}): Promise<Bid> {
+  const { data, error } = await supabase
+    .from("bids")
+    .insert({
+      room_id: params.roomId,
+      team_id: params.teamId,
+      target_id: params.targetId,
+      amount: params.amount,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`입찰 기록 실패: ${error.message}`);
+  }
+
+  return mapBidToType(data);
+}
+
+/**
+ * 낙찰 처리 (결과 저장 + 포인트 차감 + 팀원 배정)
+ */
+export async function recordSold(params: {
+  roomId: string;
+  targetId: string;
+  winnerTeamId: string;
+  finalPrice: number;
+  auctionOrder: number;
+}): Promise<AuctionResult> {
+  // 1. 낙찰 결과 저장
+  const { data: result, error: resultError } = await supabase
+    .from("auction_results")
+    .insert({
+      room_id: params.roomId,
+      target_id: params.targetId,
+      winner_team_id: params.winnerTeamId,
+      final_price: params.finalPrice,
+      auction_order: params.auctionOrder,
+    })
+    .select()
+    .single();
+
+  if (resultError) {
+    throw new Error(`낙찰 결과 저장 실패: ${resultError.message}`);
+  }
+
+  // 2. 팀 포인트 차감
+  const { error: pointsError } = await supabase.rpc("decrement_team_points", {
+    p_team_id: params.winnerTeamId,
+    p_amount: params.finalPrice,
+  });
+
+  // RPC가 없으면 직접 업데이트
+  if (pointsError) {
+    const { data: team } = await supabase
+      .from("teams")
+      .select("current_points")
+      .eq("id", params.winnerTeamId)
+      .single();
+
+    if (team) {
+      await supabase
+        .from("teams")
+        .update({ current_points: team.current_points - params.finalPrice })
+        .eq("id", params.winnerTeamId);
+    }
+  }
+
+  // 3. 팀원을 해당 팀에 배정
+  const { error: assignError } = await supabase
+    .from("participants")
+    .update({ team_id: params.winnerTeamId })
+    .eq("id", params.targetId);
+
+  if (assignError) {
+    throw new Error(`팀원 배정 실패: ${assignError.message}`);
+  }
+
+  return mapAuctionResultToType(result);
+}
+
+/**
+ * 팀 포인트 업데이트
+ */
+export async function updateTeamPoints(
+  teamId: string,
+  newPoints: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("teams")
+    .update({ current_points: newPoints })
+    .eq("id", teamId);
+
+  if (error) {
+    throw new Error(`포인트 업데이트 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 팀원을 팀에 배정
+ */
+export async function assignMemberToTeam(
+  memberId: string,
+  teamId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("participants")
+    .update({ team_id: teamId })
+    .eq("id", memberId);
+
+  if (error) {
+    throw new Error(`팀 배정 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 현재 경매 대상 업데이트
+ */
+export async function updateCurrentTarget(
+  roomId: string,
+  targetId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("auction_rooms")
+    .update({ current_target_id: targetId })
+    .eq("id", roomId);
+
+  if (error) {
+    throw new Error(`타겟 업데이트 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 셔플 후 경매 순서 저장
+ */
+export async function saveAuctionOrder(
+  orderedMemberIds: string[]
+): Promise<void> {
+  for (let i = 0; i < orderedMemberIds.length; i++) {
+    const { error } = await supabase
+      .from("participants")
+      .update({ auction_order: i + 1 })
+      .eq("id", orderedMemberIds[i]);
+
+    if (error) {
+      throw new Error(`경매 순서 저장 실패: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * 팀의 현재 포인트 조회
+ */
+export async function getTeamCurrentPoints(teamId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("teams")
+    .select("current_points")
+    .eq("id", teamId)
+    .single();
+
+  if (error) {
+    throw new Error(`팀 포인트 조회 실패: ${error.message}`);
+  }
+
+  return data.current_points;
+}
+
+/**
+ * 경매방의 모든 경매 결과 조회
+ */
+export async function getAuctionResultsByRoomId(
+  roomId: string
+): Promise<AuctionResult[]> {
+  const { data, error } = await supabase
+    .from("auction_results")
+    .select("*")
+    .eq("room_id", roomId)
+    .order("auction_order", { ascending: true });
+
+  if (error) {
+    return [];
+  }
+
+  return data.map(mapAuctionResultToType);
 }
