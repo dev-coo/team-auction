@@ -34,6 +34,44 @@ src/app/
   result/[id]/          # 결과
 ```
 
+### Auction Room Page (`src/app/room/[id]/`)
+
+경매 진행 페이지는 페이즈별 컴포넌트로 분리하여 개발 중:
+
+```
+src/app/room/[id]/
+  page.tsx                    # 메인 페이지 (레이아웃, Realtime 연결, DB 데이터 fetch)
+  components/
+    DebugControls.tsx         # 디버그용 역할/페이즈 강제 선택 UI
+    phases/
+      WaitingPhase.tsx        # ✅ WAITING 페이즈 (역할별 UI + 인프라 연동 완료)
+      CaptainIntroPhase.tsx   # ⏳ CAPTAIN_INTRO 페이즈 (예정)
+      ShufflePhase.tsx        # ⏳ SHUFFLE 페이즈 (예정)
+      AuctionPhase.tsx        # ⏳ AUCTION 페이즈 (예정)
+      FinishedPhase.tsx       # ⏳ FINISHED 페이즈 (예정)
+```
+
+#### 페이즈별 역할 UI 매트릭스
+
+| 페이즈 | HOST | CAPTAIN | OBSERVER |
+|--------|------|---------|----------|
+| WAITING | 팀장 입장 현황 + 다음 버튼 | 입장 완료 메시지 | 관전 모드 메시지 |
+| CAPTAIN_INTRO | 팀장 소개 + 다음 버튼 | 팀장 목록 관전 | 팀장 목록 관전 |
+| SHUFFLE | 셔플 애니메이션 + 다음 버튼 | 셔플 관전 | 셔플 관전 |
+| AUCTION | 타이머/현황 + 다음 버튼 | **입찰 UI** | 관전 모드 |
+| FINISHED | 결과 보기 버튼 | 결과 보기 버튼 | 결과 보기 버튼 |
+
+#### 개발 진행 방식
+- **순서**: 페이즈별 UI → 인프라 연동 → 다음 페이즈 UI → 다음 인프라
+- **현재**: WAITING 페이즈 완료 (UI + 인프라), CAPTAIN_INTRO 예정
+- **타이머**: Edge Function (서버리스)으로 서버 기준 타이머 (AUCTION 페이즈)
+- **낙찰 후 진행**: 주최자가 "다음" 버튼 클릭
+
+#### 역할 판별 (`page.tsx`)
+- localStorage에서 `participant_id_{roomId}` → 해당 참가자 역할
+- localStorage에서 `host_code_{roomId}` → HOST
+- 둘 다 없으면 → OBSERVER
+
 ### Core Types (`src/types/index.ts`)
 - `AuctionPhase`: WAITING → CAPTAIN_INTRO → SHUFFLE → AUCTION → FINISHED
 - `ParticipantRole`: HOST | CAPTAIN | MEMBER | OBSERVER
@@ -41,16 +79,12 @@ src/app/
 
 ### Realtime Channel Structure
 ```
-room:{roomId}
-  ├── phase      # 페이즈 상태 (Broadcast)
-  ├── auction    # 입찰/낙찰 (Broadcast)
-  ├── timer      # 타이머 동기화 (Broadcast)
-  ├── chat       # 전체 채팅 (Broadcast)
-  └── presence   # 접속자 상태 (Presence)
-
-team:{teamId}
-  └── chat       # 팀 채팅 (Broadcast)
+room:{roomId}        # Broadcast 전용 (페이즈, 입찰, 타이머, 채팅)
+presence:{roomId}    # Presence 전용 (접속자 상태) - 분리 필수!
+team:{teamId}        # 팀 채팅 (Broadcast)
 ```
+
+**주의**: `room:` 채널과 `presence:` 채널을 분리해야 함. 같은 채널명으로 Broadcast와 Presence를 함께 사용하면 충돌 발생.
 
 ### Lib Modules
 
@@ -67,19 +101,24 @@ src/lib/
 ### Realtime Hooks (`src/lib/realtime.ts`)
 
 ```typescript
-// 경매방 채널 구독 (Broadcast + Presence)
+// 경매방 채널 구독 (Broadcast 전용)
 const { channel, isConnected, broadcast } = useRoomChannel(roomId, onEvent);
 broadcast("BID", { amount: 100, teamId: "..." });
 
 // 팀 채팅 채널
 const { channel, isConnected, sendMessage } = useTeamChannel(teamId, onMessage);
 
-// 접속자 상태
+// 접속자 상태 (별도 Presence 채널)
 const { onlineUsers } = usePresence(roomId, userId, { nickname, role });
 
 // DB 변경 구독
 useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
 ```
+
+#### Realtime 훅 주의사항
+- **callback 함수는 useRef로 저장**: dependency 배열에 함수를 넣으면 무한 루프 발생
+- **객체 dependency는 문자열화**: `userInfo` 같은 객체는 매 렌더링마다 새 참조 생성
+- **presenceState() 결과는 spread로 복사**: `setOnlineUsers({ ...state })` - React가 변화 감지하도록
 
 ### Auction Rules
 - **Timer**: 15초 시작, 입찰마다 +2초 (고정값, `src/lib/constants.ts`)
