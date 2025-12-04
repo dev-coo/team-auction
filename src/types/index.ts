@@ -95,7 +95,8 @@ export type RealtimeEventType =
   | "TIMER_SYNC"
   | "SOLD"
   | "PASSED"
-  | "CHAT";
+  | "CHAT"
+  | "ANNOUNCE";
 
 // AUCTION 페이즈 Realtime 이벤트 페이로드
 export interface AuctionStartPayload {
