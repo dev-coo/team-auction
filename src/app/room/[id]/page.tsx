@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+
+// 채팅 메시지 타입
+interface ChatMessage {
+  id: string;
+  sender: string;
+  content: string;
+  timestamp: number;
+}
 import { AuctionPhase, AuctionRoom as AuctionRoomType, Team, Participant, ParticipantRole } from "@/types";
 import { useRoomChannel, usePresence } from "@/lib/realtime";
 import { getAuctionById, getTeamsByRoomId, getParticipantsByRoomId } from "@/lib/api/auction";
@@ -37,12 +45,9 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [revealedCount, setRevealedCount] = useState(0);
   const [animationSeed, setAnimationSeed] = useState<number | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { id: "1", sender: "팀장A", content: "이번엔 내가 간다", teamId: null },
-    { id: "2", sender: "팀장B", content: "ㅋㅋㅋ 경쟁 치열하네", teamId: null },
-    { id: "3", sender: "유저1", content: "와 불꽃 경쟁", teamId: null },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const [announceInput, setAnnounceInput] = useState("");
 
   // params Promise 해결
@@ -226,6 +231,17 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       case "SHUFFLE_COMPLETE":
         setShuffleState("COMPLETE");
         break;
+      case "CHAT":
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `${event.payload.timestamp as number}-${Math.random().toString(36).slice(2)}`,
+            sender: event.payload.sender as string,
+            content: event.payload.content as string,
+            timestamp: event.payload.timestamp as number,
+          },
+        ]);
+        break;
       // 추후 다른 이벤트 핸들러 추가 예정
     }
   }, []);
@@ -294,6 +310,60 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       }, 500);
     }, 10000);
   }, [participantsWithOnlineStatus, broadcast]);
+
+  // 채팅 메시지 전송
+  const sendChatMessage = useCallback(() => {
+    if (!chatInput.trim()) return;
+
+    // 닉네임 결정
+    let senderNickname: string;
+    if (currentRole === "HOST") {
+      senderNickname = "주최자";
+    } else if (currentParticipantId) {
+      const participant = participants.find((p) => p.id === currentParticipantId);
+      senderNickname = participant?.nickname || "익명";
+    } else {
+      senderNickname = "익명";
+    }
+
+    const timestamp = Date.now();
+    const newMessage: ChatMessage = {
+      id: `${timestamp}-${Math.random().toString(36).slice(2)}`,
+      sender: senderNickname,
+      content: chatInput.trim(),
+      timestamp,
+    };
+
+    // 로컬 상태에 추가 (self: false라서 본인 메시지는 broadcast로 안 옴)
+    setChatMessages((prev) => [...prev, newMessage]);
+
+    // 다른 클라이언트에 브로드캐스트
+    broadcast("CHAT", {
+      sender: senderNickname,
+      content: chatInput.trim(),
+      timestamp,
+    });
+
+    setChatInput("");
+  }, [chatInput, currentRole, currentParticipantId, participants, broadcast]);
+
+  // 채팅 입력 핸들러 (Enter 키)
+  const handleChatKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    },
+    [sendChatMessage]
+  );
+
+  // 채팅 자동 스크롤
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
 
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
@@ -701,13 +771,22 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           </div>
 
           {/* Chat messages */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
-            {chatMessages.map((msg) => (
-              <div key={msg.id} className="text-sm">
-                <span className="font-medium text-amber-400">{msg.sender}</span>
-                <span className="ml-2 text-slate-300">{msg.content}</span>
+          <div
+            ref={chatContainerRef}
+            className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3"
+          >
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-sm text-slate-500 py-4">
+                아직 메시지가 없습니다
               </div>
-            ))}
+            ) : (
+              chatMessages.map((msg) => (
+                <div key={msg.id} className="text-sm">
+                  <span className="font-medium text-amber-400">{msg.sender}</span>
+                  <span className="ml-2 text-slate-300">{msg.content}</span>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Chat input */}
@@ -717,10 +796,12 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
                 placeholder="메시지 입력..."
                 className="flex-1 rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none"
               />
               <motion.button
+                onClick={sendChatMessage}
                 className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
