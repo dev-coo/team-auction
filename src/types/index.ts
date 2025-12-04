@@ -87,6 +87,9 @@ export interface AuctionResult {
 export type RealtimeEventType =
   | "PHASE_CHANGE"
   | "CAPTAIN_INDEX_CHANGE"
+  | "SHUFFLE_START"
+  | "SHUFFLE_REVEAL"
+  | "SHUFFLE_COMPLETE"
   | "AUCTION_START"
   | "BID"
   | "TIMER_SYNC"
