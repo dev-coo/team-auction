@@ -94,7 +94,8 @@ export type RealtimeEventType =
   | "BID"
   | "TIMER_SYNC"
   | "SOLD"
-  | "CHAT";
+  | "CHAT"
+  | "ANNOUNCE";
 
 export interface RealtimeEvent {
   type: RealtimeEventType;

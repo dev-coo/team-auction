@@ -49,6 +49,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [chatInput, setChatInput] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [announceInput, setAnnounceInput] = useState("");
+  const [currentAnnouncement, setCurrentAnnouncement] = useState("");
 
   // params Promise 해결
   useEffect(() => {
@@ -242,7 +243,9 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           },
         ]);
         break;
-      // 추후 다른 이벤트 핸들러 추가 예정
+      case "ANNOUNCE":
+        setCurrentAnnouncement(event.payload.content as string);
+        break;
     }
   }, []);
 
@@ -356,6 +359,32 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       }
     },
     [sendChatMessage]
+  );
+
+  // 공지 전송
+  const sendAnnouncement = useCallback(() => {
+    if (!announceInput.trim()) return;
+
+    const content = announceInput.trim();
+
+    // 로컬 상태 업데이트 (자신에게도 표시)
+    setCurrentAnnouncement(content);
+
+    // 다른 클라이언트에 브로드캐스트
+    broadcast("ANNOUNCE", { content });
+
+    setAnnounceInput("");
+  }, [announceInput, broadcast]);
+
+  // 공지 입력 핸들러 (Enter 키)
+  const handleAnnounceKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendAnnouncement();
+      }
+    },
+    [sendAnnouncement]
   );
 
   // 채팅 자동 스크롤
@@ -699,16 +728,28 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                   type="text"
                   value={announceInput}
                   onChange={(e) => setAnnounceInput(e.target.value)}
+                  onKeyDown={handleAnnounceKeyDown}
                   placeholder="공지할 내용을 입력하세요..."
                   className="flex-1 rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-red-500 focus:outline-none"
                 />
                 <motion.button
+                  onClick={sendAnnouncement}
                   className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
                   공지하기
                 </motion.button>
+              </div>
+            </div>
+          )}
+
+          {/* 비주최자 공지 표시 (공지가 있을 때만) */}
+          {currentRole !== "HOST" && currentAnnouncement && (
+            <div className="shrink-0 border-t border-slate-700/50 bg-slate-800/30 px-6 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-red-400">📢</span>
+                <span className="text-sm text-slate-200">{currentAnnouncement}</span>
               </div>
             </div>
           )}
