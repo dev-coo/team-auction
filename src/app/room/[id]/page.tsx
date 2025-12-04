@@ -21,6 +21,9 @@ import {
   SoldPayload,
   PassedPayload,
   AuctionStartPayload,
+  NextTargetPayload,
+  NextRoundPayload,
+  AutoAssignPayload,
 } from "@/types";
 import { useRoomChannel, usePresence } from "@/lib/realtime";
 import {
@@ -35,9 +38,10 @@ import WaitingPhase from "./components/phases/WaitingPhase";
 import CaptainIntroPhase from "./components/phases/CaptainIntroPhase";
 import ShufflePhase, { ShuffleState } from "./components/phases/ShufflePhase";
 import AuctionPhaseComponent from "./components/phases/AuctionPhase";
+import RandomAssignPhase from "./components/phases/RandomAssignPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
-import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS } from "@/lib/constants";
+import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, TIMER_INTERVAL_MS } from "@/lib/constants";
 
 // AUCTION 상태 초기값
 const INITIAL_AUCTION_STATE: AuctionState = {
@@ -85,6 +89,20 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [currentAnnouncement, setCurrentAnnouncement] = useState("");
   // AUCTION 페이즈 상태
   const [auctionState, setAuctionState] = useState<AuctionState>(INITIAL_AUCTION_STATE);
+  // 팀원별 낙찰 가격 (memberId -> soldPrice)
+  const [memberSoldPrices, setMemberSoldPrices] = useState<Record<string, number>>({});
+  // 유찰된 멤버 ID 목록 (현재 라운드)
+  const [passedMemberIds, setPassedMemberIds] = useState<Set<string>>(new Set());
+  // 멤버별 유찰 횟수 (memberId -> passCount) - 2번 유찰 시 랜덤 배분
+  const [memberPassCount, setMemberPassCount] = useState<Record<string, number>>({});
+  // 현재 라운드
+  const [currentRound, setCurrentRound] = useState(1);
+  // 랜덤 배분 UI 상태
+  const [showRandomAssignPhase, setShowRandomAssignPhase] = useState(false);
+  const [randomAssignTargets, setRandomAssignTargets] = useState<string[]>([]);
+  const [preCalculatedAssignments, setPreCalculatedAssignments] = useState<
+    { memberId: string; teamId: string; teamName: string; teamColor: string }[]
+  >([]);
 
   // params Promise 해결
   useEffect(() => {
@@ -181,20 +199,34 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   }, [participants, onlineUsers]);
 
   // 대기 중인 팀원 목록 (셔플된 순서대로)
+  // 버그 1 수정: AUCTION 페이즈에서는 auctionState.auctionQueue 기반으로 참가자 정보 조합
   const auctionQueue = useMemo(() => {
-    const members = participantsWithOnlineStatus
-      .filter((p) => p.role === "MEMBER" && p.teamId === null);
-
-    // 셔플 완료 후에만 셔플된 순서 반영 (애니메이션 스포일러 방지)
-    if (shuffledOrder && shuffledOrder.length > 0 && shuffleState === "COMPLETE") {
-      return shuffledOrder
-        .map((id) => members.find((m) => m.id === id))
-        .filter((m): m is Participant => m !== undefined)
-        .map((m, index) => ({ ...m, order: index + 1 }));
+    // AUCTION 페이즈에서는 auctionState.auctionQueue ID 목록 기반으로 참가자 정보 조합
+    // (낙찰된 사람도 대기열에 유지됨)
+    if (phase === "AUCTION" && auctionState.auctionQueue.length > 0) {
+      return auctionState.auctionQueue
+        .map((id, index) => {
+          const p = participantsWithOnlineStatus.find((participant) => participant.id === id);
+          return p ? { ...p, order: index + 1 } : null;
+        })
+        .filter((p): p is Participant & { order: number } => p !== null);
     }
 
+    // 셔플 완료 후에는 셔플된 순서로 모든 멤버 표시
+    if (shuffledOrder && shuffledOrder.length > 0 && shuffleState === "COMPLETE") {
+      return shuffledOrder
+        .map((id, index) => {
+          const p = participantsWithOnlineStatus.find((participant) => participant.id === id);
+          return p ? { ...p, order: index + 1 } : null;
+        })
+        .filter((p): p is Participant & { order: number } => p !== null);
+    }
+
+    // 그 외에는 아직 배정 안 된 멤버만
+    const members = participantsWithOnlineStatus
+      .filter((p) => p.role === "MEMBER" && p.teamId === null);
     return members.map((p, index) => ({ ...p, order: index + 1 }));
-  }, [participantsWithOnlineStatus, shuffledOrder, shuffleState]);
+  }, [participantsWithOnlineStatus, shuffledOrder, shuffleState, phase, auctionState.auctionQueue]);
 
   // 현재 경매 대상 (auctionState 기반)
   const currentTarget = useMemo(() => {
@@ -335,8 +367,8 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       case "TIMER_SYNC": {
         const serverTimer = event.payload.timer as number;
         setAuctionState((prev) => {
-          // 1초 이상 차이나면 동기화
-          if (Math.abs(prev.timer - serverTimer) > 1) {
+          // 1초(10단위) 이상 차이나면 동기화
+          if (Math.abs(prev.timer - serverTimer) > 10) {
             return { ...prev, timer: serverTimer };
           }
           return prev;
@@ -360,7 +392,12 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
               : p
           )
         );
-        // 낙찰 애니메이션 표시
+        // 낙찰 가격 저장
+        setMemberSoldPrices((prev) => ({
+          ...prev,
+          [payload.targetId]: payload.finalPrice,
+        }));
+        // 낙찰 애니메이션 표시 (auctionQueue는 유지)
         setAuctionState((prev) => ({
           ...prev,
           timerRunning: false,
@@ -375,16 +412,18 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
             isAutoAssignment: payload.isAutoAssignment,
           },
           completedCount: prev.completedCount + 1,
-          auctionQueue: prev.auctionQueue.filter((id) => id !== payload.targetId),
+          // auctionQueue는 유지 (제거하지 않음)
         }));
         break;
       }
       case "PASSED": {
         const payload = event.payload as unknown as PassedPayload;
+        // 유찰된 멤버 추가
+        setPassedMemberIds((prev) => new Set([...prev, payload.targetId]));
         setAuctionState((prev) => ({
           ...prev,
           currentTargetId: payload.nextTargetId,
-          auctionQueue: payload.newQueue,
+          currentTargetIndex: payload.nextIndex,
           timer: INITIAL_TIMER_SECONDS,
           timerRunning: false,
           currentPrice: 5,
@@ -392,6 +431,88 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           bidHistory: [],
           bidLockUntil: 0,
         }));
+        break;
+      }
+      case "NEXT_TARGET": {
+        const payload = event.payload as unknown as NextTargetPayload;
+        setAuctionState((prev) => ({
+          ...prev,
+          currentTargetId: payload.targetId,
+          currentTargetIndex: payload.targetIndex,
+          timer: INITIAL_TIMER_SECONDS,
+          timerRunning: false,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          bidHistory: [],
+          bidLockUntil: 0,
+          showSoldAnimation: false,
+          lastSoldInfo: null,
+        }));
+        break;
+      }
+      case "NEXT_ROUND": {
+        const payload = event.payload as unknown as NextRoundPayload;
+        setCurrentRound(payload.round);
+        setPassedMemberIds(new Set()); // 이번 라운드 유찰 목록 초기화
+        setAuctionState((prev) => ({
+          ...prev,
+          currentTargetId: payload.firstTargetId,
+          currentTargetIndex: payload.firstTargetIndex,
+          timer: INITIAL_TIMER_SECONDS,
+          timerRunning: false,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          bidHistory: [],
+          bidLockUntil: 0,
+          showSoldAnimation: false,
+          lastSoldInfo: null,
+        }));
+        break;
+      }
+      case "AUTO_ASSIGN": {
+        const payload = event.payload as unknown as AutoAssignPayload;
+        // 각 배정에 대해 참가자 및 낙찰 가격 업데이트
+        payload.assignments.forEach((assignment) => {
+          setParticipants((prev) =>
+            prev.map((p) =>
+              p.id === assignment.memberId
+                ? { ...p, teamId: assignment.teamId }
+                : p
+            )
+          );
+          setMemberSoldPrices((prev) => ({
+            ...prev,
+            [assignment.memberId]: 0, // 자동 배정은 0p
+          }));
+        });
+        break;
+      }
+      case "RANDOM_ASSIGN_START": {
+        // 랜덤 배분 UI 표시 (다른 클라이언트)
+        const targetIds = event.payload.targetIds as string[];
+        const assignments = event.payload.assignments as { memberId: string; teamId: string; teamName: string; teamColor: string }[];
+        setRandomAssignTargets(targetIds);
+        setPreCalculatedAssignments(assignments);
+        setShowRandomAssignPhase(true);
+        break;
+      }
+      case "RANDOM_ASSIGN_COMPLETE": {
+        // 랜덤 배분 완료 (애니메이션 후)
+        const assignments = event.payload.assignments as { memberId: string; teamId: string; teamName: string; teamColor: string }[];
+        assignments.forEach((assignment) => {
+          setParticipants((prev) =>
+            prev.map((p) =>
+              p.id === assignment.memberId
+                ? { ...p, teamId: assignment.teamId }
+                : p
+            )
+          );
+          setMemberSoldPrices((prev) => ({
+            ...prev,
+            [assignment.memberId]: 0,
+          }));
+        });
+        setShowRandomAssignPhase(false);
         break;
       }
     }
@@ -542,7 +663,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     }
   }, [chatMessages]);
 
-  // AUCTION 타이머 로직
+  // AUCTION 타이머 로직 (0.1초 단위)
   useEffect(() => {
     if (!auctionState.timerRunning || phase !== "AUCTION") return;
 
@@ -554,7 +675,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         }
         return { ...prev, timer: prev.timer - 1 };
       });
-    }, 1000);
+    }, TIMER_INTERVAL_MS); // 100ms (0.1초)
 
     return () => clearInterval(interval);
   }, [auctionState.timerRunning, phase]);
@@ -579,44 +700,87 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctionState.timer, auctionState.timerRunning, phase, currentRole]);
 
-  // SHUFFLE 완료 후 경매 큐 초기화
+  // SHUFFLE 완료 후 경매 큐 초기화 + 첫 대상 자동 설정 (버그 4 해결)
   useEffect(() => {
     if (phase === "AUCTION" && shuffledOrder && auctionState.auctionQueue.length === 0) {
+      const firstTargetId = shuffledOrder[0];
       setAuctionState((prev) => ({
         ...prev,
         auctionQueue: shuffledOrder,
         totalTargets: shuffledOrder.length,
+        currentTargetId: firstTargetId, // 첫 대상 자동 설정
+        currentTargetIndex: 0,
+        timerRunning: false, // 매물 소개 상태 (타이머 멈춤)
       }));
     }
   }, [phase, shuffledOrder, auctionState.auctionQueue.length]);
 
-  // 경매 시작 (주최자용)
+  // 다음 경매 대상 찾기 (현재 라운드에서 아직 처리 안 된 사람) - handleStartAuction보다 먼저 정의
+  const findNextTarget = useCallback((
+    queue: string[],
+    startIndex: number,
+    soldPrices: Record<string, number>,
+    passedIds: Set<string>
+  ): { id: string; index: number } | null => {
+    for (let i = startIndex; i < queue.length; i++) {
+      const id = queue[i];
+      // 낙찰되지 않고, 이번 라운드에서 유찰되지 않은 사람
+      if (soldPrices[id] === undefined && !passedIds.has(id)) {
+        return { id, index: i };
+      }
+    }
+    return null;
+  }, []);
+
+  // 경매 시작 (주최자용) - 버그 2 해결: currentTargetId가 있으면 타이머만 시작
   const handleStartAuction = useCallback(() => {
     if (!auctionState.auctionQueue.length) return;
 
-    const targetId = auctionState.auctionQueue[0];
-    const targetIndex = auctionState.currentTargetIndex;
+    if (!auctionState.currentTargetId) {
+      // 첫 경매인 경우 (currentTargetId가 없을 때)
+      const firstTarget = findNextTarget(auctionState.auctionQueue, 0, memberSoldPrices, passedMemberIds);
+      if (!firstTarget) return;
 
-    setAuctionState((prev) => ({
-      ...prev,
-      currentTargetId: targetId,
-      timer: INITIAL_TIMER_SECONDS,
-      timerRunning: true,
-      currentPrice: 5,
-      highestBidTeamId: null,
-      bidHistory: [],
-      bidLockUntil: 0,
-      showSoldAnimation: false,
-      lastSoldInfo: null,
-    }));
+      setAuctionState((prev) => ({
+        ...prev,
+        currentTargetId: firstTarget.id,
+        currentTargetIndex: firstTarget.index,
+        timer: INITIAL_TIMER_SECONDS,
+        timerRunning: true,
+        currentPrice: 5,
+        highestBidTeamId: null,
+        bidHistory: [],
+        bidLockUntil: 0,
+        showSoldAnimation: false,
+        lastSoldInfo: null,
+      }));
 
-    broadcast("AUCTION_START", {
-      targetId,
-      targetIndex,
-      totalTargets: auctionState.totalTargets,
-      startTime: Date.now(),
-    });
-  }, [auctionState.auctionQueue, auctionState.currentTargetIndex, auctionState.totalTargets, broadcast]);
+      broadcast("AUCTION_START", {
+        targetId: firstTarget.id,
+        targetIndex: firstTarget.index,
+        totalTargets: auctionState.totalTargets,
+        startTime: Date.now(),
+      });
+    } else {
+      // 매물 소개 상태에서 경매 시작 (currentTargetId가 이미 있을 때 - 타이머만 시작)
+      setAuctionState((prev) => ({
+        ...prev,
+        timer: INITIAL_TIMER_SECONDS,
+        timerRunning: true,
+        currentPrice: 5,
+        highestBidTeamId: null,
+        bidHistory: [],
+        bidLockUntil: 0,
+      }));
+
+      broadcast("AUCTION_START", {
+        targetId: auctionState.currentTargetId,
+        targetIndex: auctionState.currentTargetIndex,
+        totalTargets: auctionState.totalTargets,
+        startTime: Date.now(),
+      });
+    }
+  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, broadcast]);
 
   // 입찰 (팀장용)
   const handleBid = useCallback(
@@ -727,6 +891,11 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         p.id === target.id ? { ...p, teamId: winnerTeam.id } : p
       )
     );
+    // 낙찰 가격 저장
+    setMemberSoldPrices((prev) => ({
+      ...prev,
+      [target.id]: finalPrice,
+    }));
     setAuctionState((prev) => ({
       ...prev,
       timerRunning: false,
@@ -740,7 +909,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         finalPrice,
       },
       completedCount: prev.completedCount + 1,
-      auctionQueue: prev.auctionQueue.filter((id) => id !== target.id),
+      // auctionQueue는 유지 (제거하지 않음)
     }));
 
     // 브로드캐스트
@@ -770,90 +939,173 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     }
   }, [auctionState, teams, participantsWithOnlineStatus, roomId, broadcast]);
 
-  // 다음 경매 (주최자용) - 낙찰 애니메이션 후 호출
-  const handleNextAuction = useCallback(() => {
-    const remainingQueue = auctionState.auctionQueue;
+  // 자동 랜덤 배정
+  const autoAssignRemaining = useCallback((unsoldIds: string[]) => {
+    if (!room) return;
 
-    // 마지막 1명 체크
-    if (remainingQueue.length === 1) {
-      // 자동 배정 처리
-      const lastMemberId = remainingQueue[0];
-      const lastMember = participantsWithOnlineStatus.find((p) => p.id === lastMemberId);
-      // 팀원이 아직 가득 차지 않은 팀 찾기 (memberPerTeam은 팀장 포함이므로 -1)
-      const availableTeam = teams.find(
-        (t) =>
-          participantsWithOnlineStatus.filter((p) => p.teamId === t.id && p.role === "MEMBER")
-            .length < room!.memberPerTeam - 1
-      );
+    // 현재 배정된 팀원 수 계산 (memberSoldPrices 기준)
+    const teamMemberCounts: Record<string, number> = {};
+    teams.forEach((t) => {
+      teamMemberCounts[t.id] = participantsWithOnlineStatus.filter(
+        (p) => p.teamId === t.id && p.role === "MEMBER"
+      ).length;
+    });
 
-      if (lastMember && availableTeam) {
-        const updatedPoints: Record<string, number> = {};
-        teams.forEach((t) => {
-          updatedPoints[t.id] = t.currentPoints;
+    // 랜덤 셔플
+    const shuffledIds = [...unsoldIds].sort(() => Math.random() - 0.5);
+    const assignments: { memberId: string; teamId: string; teamName: string; teamColor: string }[] = [];
+
+    for (const memberId of shuffledIds) {
+      // 자리가 남은 팀 찾기
+      const availableTeam = teams.find((t) => {
+        const currentCount = teamMemberCounts[t.id] + assignments.filter((a) => a.teamId === t.id).length;
+        return currentCount < room.memberPerTeam - 1; // 팀장 제외
+      });
+
+      if (availableTeam) {
+        assignments.push({
+          memberId,
+          teamId: availableTeam.id,
+          teamName: availableTeam.name,
+          teamColor: availableTeam.color,
         });
-
-        setTeams((prev) => prev);
-        setParticipants((prev) =>
-          prev.map((p) =>
-            p.id === lastMemberId ? { ...p, teamId: availableTeam.id } : p
-          )
-        );
-        setAuctionState((prev) => ({
-          ...prev,
-          timerRunning: false,
-          showSoldAnimation: true,
-          lastSoldInfo: {
-            targetId: lastMember.id,
-            targetNickname: lastMember.nickname,
-            winnerTeamId: availableTeam.id,
-            winnerTeamName: availableTeam.name,
-            winnerTeamColor: availableTeam.color,
-            finalPrice: 0,
-            isAutoAssignment: true,
-          },
-          completedCount: prev.completedCount + 1,
-          auctionQueue: [],
-        }));
-
-        broadcast("SOLD", {
-          targetId: lastMember.id,
-          targetNickname: lastMember.nickname,
-          winnerTeamId: availableTeam.id,
-          winnerTeamName: availableTeam.name,
-          winnerTeamColor: availableTeam.color,
-          finalPrice: 0,
-          nextTargetId: null,
-          updatedPoints,
-          isAutoAssignment: true,
-          auctionOrder: auctionState.completedCount + 1,
-        });
-
-        // DB 저장
-        recordSold({
-          roomId: roomId!,
-          targetId: lastMember.id,
-          winnerTeamId: availableTeam.id,
-          finalPrice: 0,
-          auctionOrder: auctionState.completedCount + 1,
-        }).catch(console.error);
-
-        return;
       }
     }
 
-    // 경매 완료 체크
-    if (remainingQueue.length === 0) {
+    // 각 배정 처리
+    assignments.forEach((assignment) => {
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.id === assignment.memberId
+            ? { ...p, teamId: assignment.teamId }
+            : p
+        )
+      );
+      setMemberSoldPrices((prev) => ({
+        ...prev,
+        [assignment.memberId]: 0,
+      }));
+
+      // DB 저장
+      recordSold({
+        roomId: roomId!,
+        targetId: assignment.memberId,
+        winnerTeamId: assignment.teamId,
+        finalPrice: 0,
+        auctionOrder: auctionState.completedCount + 1,
+      }).catch(console.error);
+    });
+
+    // 브로드캐스트
+    broadcast("AUTO_ASSIGN", { assignments });
+
+    // 경매 종료
+    setPhase("FINISHED");
+    broadcast("PHASE_CHANGE", { phase: "FINISHED" });
+  }, [teams, participantsWithOnlineStatus, room, roomId, auctionState.completedCount, broadcast]);
+
+  // 단일 멤버 랜덤 배정 (2번째 유찰 시)
+  const autoAssignSingleMember = useCallback((memberId: string) => {
+    if (!room) return;
+
+    // 자리가 남은 팀 찾기
+    const teamsWithSlots = teams.filter((t) => {
+      const memberCount = participantsWithOnlineStatus.filter(
+        (p) => p.teamId === t.id && p.role === "MEMBER"
+      ).length;
+      return memberCount < room.memberPerTeam - 1; // 팀장 제외
+    });
+
+    if (teamsWithSlots.length === 0) return;
+
+    // 랜덤으로 팀 선택
+    const randomTeam = teamsWithSlots[Math.floor(Math.random() * teamsWithSlots.length)];
+    const target = participantsWithOnlineStatus.find((p) => p.id === memberId);
+    if (!target || !randomTeam) return;
+
+    // 참가자 팀 배정
+    setParticipants((prev) =>
+      prev.map((p) =>
+        p.id === memberId ? { ...p, teamId: randomTeam.id } : p
+      )
+    );
+
+    // 낙찰 가격 기록 (0원 = 랜덤 배정)
+    setMemberSoldPrices((prev) => ({
+      ...prev,
+      [memberId]: 0,
+    }));
+
+    // 완료 카운트 증가
+    setAuctionState((prev) => ({
+      ...prev,
+      completedCount: prev.completedCount + 1,
+      showSoldAnimation: true,
+      lastSoldInfo: {
+        targetId: memberId,
+        targetNickname: target.nickname,
+        winnerTeamId: randomTeam.id,
+        winnerTeamName: randomTeam.name,
+        winnerTeamColor: randomTeam.color,
+        finalPrice: 0,
+        isAutoAssignment: true,
+      },
+    }));
+
+    // 브로드캐스트
+    broadcast("SOLD", {
+      targetId: memberId,
+      targetNickname: target.nickname,
+      winnerTeamId: randomTeam.id,
+      winnerTeamName: randomTeam.name,
+      winnerTeamColor: randomTeam.color,
+      finalPrice: 0,
+      nextTargetId: null,
+      updatedPoints: teams.reduce((acc, t) => ({ ...acc, [t.id]: t.currentPoints }), {}),
+      isAutoAssignment: true,
+      auctionOrder: auctionState.completedCount + 1,
+    });
+
+    // DB 저장
+    recordSold({
+      roomId: roomId!,
+      targetId: memberId,
+      winnerTeamId: randomTeam.id,
+      finalPrice: 0,
+      auctionOrder: auctionState.completedCount + 1,
+    }).catch(console.error);
+  }, [teams, participantsWithOnlineStatus, room, roomId, auctionState.completedCount, broadcast]);
+
+  // 다음 라운드 시작
+  const startNextRound = useCallback((passedIds: Set<string>) => {
+    const queue = auctionState.auctionQueue;
+    // 유찰된 사람 중 첫 번째 (낙찰되지 않은)
+    let firstPassedIndex = -1;
+    let firstPassedId: string | null = null;
+
+    for (let i = 0; i < queue.length; i++) {
+      const id = queue[i];
+      if (passedIds.has(id) && memberSoldPrices[id] === undefined) {
+        firstPassedId = id;
+        firstPassedIndex = i;
+        break;
+      }
+    }
+
+    if (!firstPassedId || firstPassedIndex === -1) {
+      // 유찰된 사람이 없으면 경매 종료
       setPhase("FINISHED");
       broadcast("PHASE_CHANGE", { phase: "FINISHED" });
       return;
     }
 
-    // 다음 대상으로
-    const nextTargetId = remainingQueue[0];
+    const nextRound = currentRound + 1;
+    setCurrentRound(nextRound);
+    setPassedMemberIds(new Set()); // 이번 라운드 유찰 목록 초기화
     setAuctionState((prev) => ({
       ...prev,
-      currentTargetId: nextTargetId,
-      currentTargetIndex: prev.currentTargetIndex + 1,
+      currentTargetId: firstPassedId,
+      currentTargetIndex: firstPassedIndex,
       timer: INITIAL_TIMER_SECONDS,
       timerRunning: false,
       currentPrice: 5,
@@ -863,35 +1115,223 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       showSoldAnimation: false,
       lastSoldInfo: null,
     }));
-  }, [auctionState, participantsWithOnlineStatus, teams, room, roomId, broadcast]);
+
+    broadcast("NEXT_ROUND", {
+      round: nextRound,
+      firstTargetId: firstPassedId,
+      firstTargetIndex: firstPassedIndex,
+    });
+  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, broadcast]);
+
+  // 랜덤 배분 미리 계산
+  const calculateRandomAssignments = useCallback((unsoldIds: string[]) => {
+    if (!room) return [];
+
+    // 현재 배정된 팀원 수 계산
+    const teamMemberCounts: Record<string, number> = {};
+    teams.forEach((t) => {
+      teamMemberCounts[t.id] = participantsWithOnlineStatus.filter(
+        (p) => p.teamId === t.id && p.role === "MEMBER"
+      ).length;
+    });
+
+    // 랜덤 셔플
+    const shuffledIds = [...unsoldIds].sort(() => Math.random() - 0.5);
+    const assignments: { memberId: string; teamId: string; teamName: string; teamColor: string }[] = [];
+
+    for (const memberId of shuffledIds) {
+      // 자리가 남은 팀 찾기
+      const availableTeam = teams.find((t) => {
+        const currentCount = teamMemberCounts[t.id] + assignments.filter((a) => a.teamId === t.id).length;
+        return currentCount < room.memberPerTeam - 1; // 팀장 제외
+      });
+
+      if (availableTeam) {
+        assignments.push({
+          memberId,
+          teamId: availableTeam.id,
+          teamName: availableTeam.name,
+          teamColor: availableTeam.color,
+        });
+      }
+    }
+
+    return assignments;
+  }, [teams, participantsWithOnlineStatus, room]);
+
+  // 라운드 종료 또는 자동 배정 체크
+  // 1라운드 유찰 → 2라운드 재경매, 2라운드 유찰 → 랜덤 배분 UI 표시
+  const checkRoundEndOrAutoAssign = useCallback((passedIds: Set<string>) => {
+    const queue = auctionState.auctionQueue;
+
+    // 아직 낙찰 안 된 사람들
+    const unsoldIds = queue.filter((id) => memberSoldPrices[id] === undefined);
+
+    // 모두 배정됐으면 경매 종료
+    if (unsoldIds.length === 0) {
+      setPhase("FINISHED");
+      broadcast("PHASE_CHANGE", { phase: "FINISHED" });
+      return;
+    }
+
+    // 유찰된 사람 중 아직 낙찰 안 된 사람
+    const unsoldPassedIds = [...passedIds].filter((id) => memberSoldPrices[id] === undefined);
+
+    // 1라운드에서 유찰된 사람이 있으면 2라운드 시작
+    if (currentRound === 1 && unsoldPassedIds.length > 0) {
+      startNextRound(passedIds);
+      return;
+    }
+
+    // 2라운드 끝 - 랜덤 배분 UI 표시
+    if (unsoldIds.length > 0) {
+      // 미리 배분 계산
+      const assignments = calculateRandomAssignments(unsoldIds);
+      setRandomAssignTargets(unsoldIds);
+      setPreCalculatedAssignments(assignments);
+      setShowRandomAssignPhase(true);
+
+      // 다른 클라이언트에게 랜덤 배분 UI 표시 알림
+      broadcast("RANDOM_ASSIGN_START", { targetIds: unsoldIds, assignments });
+    } else {
+      setPhase("FINISHED");
+      broadcast("PHASE_CHANGE", { phase: "FINISHED" });
+    }
+  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, calculateRandomAssignments, startNextRound, broadcast]);
+
+  // 다음 경매 (주최자용) - 낙찰 애니메이션 후 호출
+  const handleNextAuction = useCallback(() => {
+    const queue = auctionState.auctionQueue;
+    const currentIdx = queue.indexOf(auctionState.currentTargetId || "");
+
+    // 다음 대상 찾기 (현재 위치 이후, 낙찰/유찰되지 않은 사람)
+    const next = findNextTarget(queue, currentIdx + 1, memberSoldPrices, passedMemberIds);
+
+    if (next) {
+      // 다음 대상으로 이동
+      setAuctionState((prev) => ({
+        ...prev,
+        currentTargetId: next.id,
+        currentTargetIndex: next.index,
+        timer: INITIAL_TIMER_SECONDS,
+        timerRunning: false,
+        currentPrice: 5,
+        highestBidTeamId: null,
+        bidHistory: [],
+        bidLockUntil: 0,
+        showSoldAnimation: false,
+        lastSoldInfo: null,
+      }));
+
+      broadcast("NEXT_TARGET", {
+        targetId: next.id,
+        targetIndex: next.index,
+      });
+    } else {
+      // 이번 라운드 끝 → 다음 라운드 또는 자동 배정
+      checkRoundEndOrAutoAssign(passedMemberIds);
+    }
+  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, checkRoundEndOrAutoAssign, broadcast]);
 
   // 유찰 처리 (주최자용)
+  // 1라운드 유찰 → 2라운드 재경매, 2라운드 유찰 → 라운드 끝나고 한번에 랜덤 배분
   const handlePass = useCallback(() => {
-    if (!auctionState.currentTargetId || auctionState.auctionQueue.length === 0) return;
+    const queue = auctionState.auctionQueue;
+    const currentTargetId = auctionState.currentTargetId;
+    if (!currentTargetId) return;
 
-    // 현재 대상을 맨 뒤로
-    const currentId = auctionState.auctionQueue[0];
-    const newQueue = [...auctionState.auctionQueue.slice(1), currentId];
-    const nextTargetId = newQueue[0];
-
-    setAuctionState((prev) => ({
+    // 유찰 횟수 증가
+    const newPassCount = (memberPassCount[currentTargetId] || 0) + 1;
+    setMemberPassCount((prev) => ({
       ...prev,
-      currentTargetId: nextTargetId,
-      auctionQueue: newQueue,
-      timer: INITIAL_TIMER_SECONDS,
-      timerRunning: false,
-      currentPrice: 5,
-      highestBidTeamId: null,
-      bidHistory: [],
-      bidLockUntil: 0,
+      [currentTargetId]: newPassCount,
     }));
 
-    broadcast("PASSED", {
-      targetId: currentId,
-      nextTargetId,
-      newQueue,
-    });
-  }, [auctionState, broadcast]);
+    // 유찰 목록에 추가
+    const newPassedIds = new Set([...passedMemberIds, currentTargetId]);
+    setPassedMemberIds(newPassedIds);
+
+    // 다음 대상 찾기
+    const currentIdx = queue.indexOf(currentTargetId);
+    const next = findNextTarget(queue, currentIdx + 1, memberSoldPrices, newPassedIds);
+
+    if (next) {
+      // 다음 대상으로 이동
+      setAuctionState((prev) => ({
+        ...prev,
+        currentTargetId: next.id,
+        currentTargetIndex: next.index,
+        timer: INITIAL_TIMER_SECONDS,
+        timerRunning: false,
+        currentPrice: 5,
+        highestBidTeamId: null,
+        bidHistory: [],
+        bidLockUntil: 0,
+      }));
+
+      broadcast("PASSED", {
+        targetId: currentTargetId,
+        nextTargetId: next.id,
+        nextIndex: next.index,
+      });
+    } else {
+      // 라운드 종료 → 다음 라운드 또는 자동 배정 체크
+      broadcast("PASSED", {
+        targetId: currentTargetId,
+        nextTargetId: null,
+        nextIndex: -1,
+      });
+      checkRoundEndOrAutoAssign(newPassedIds);
+    }
+  }, [auctionState, passedMemberIds, memberSoldPrices, memberPassCount, findNextTarget, checkRoundEndOrAutoAssign, broadcast]);
+
+  // 랜덤 배분 시작 (주최자용) - 버튼 클릭 시 애니메이션 시작
+  const handleStartRandomAssign = useCallback(() => {
+    // 애니메이션 시작을 브로드캐스트
+    broadcast("RANDOM_ASSIGN_ANIMATING", {});
+  }, [broadcast]);
+
+  // 랜덤 배분 완료 (애니메이션 후 DB 저장)
+  const handleRandomAssignComplete = useCallback(async () => {
+    // DB에 저장 및 상태 업데이트
+    for (const assignment of preCalculatedAssignments) {
+      // 참가자 팀 배정
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.id === assignment.memberId ? { ...p, teamId: assignment.teamId } : p
+        )
+      );
+
+      // 낙찰 가격 기록 (0p = 랜덤 배정)
+      setMemberSoldPrices((prev) => ({
+        ...prev,
+        [assignment.memberId]: 0,
+      }));
+
+      // DB 저장
+      try {
+        await recordSold({
+          roomId: roomId!,
+          targetId: assignment.memberId,
+          winnerTeamId: assignment.teamId,
+          finalPrice: 0,
+          auctionOrder: auctionState.completedCount + 1,
+        });
+      } catch (err) {
+        console.error("랜덤 배정 기록 실패:", err);
+      }
+    }
+
+    // 브로드캐스트
+    broadcast("RANDOM_ASSIGN_COMPLETE", { assignments: preCalculatedAssignments });
+
+    // 상태 초기화 및 경매 종료
+    setShowRandomAssignPhase(false);
+    setRandomAssignTargets([]);
+    setPreCalculatedAssignments([]);
+    setPhase("FINISHED");
+    broadcast("PHASE_CHANGE", { phase: "FINISHED" });
+  }, [preCalculatedAssignments, roomId, auctionState.completedCount, broadcast]);
 
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
@@ -1036,11 +1476,19 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                     </div>
                     {!isWaiting && (
                       <>
-                        {members.map((m) => (
-                          <div key={m.id} className="ml-4 text-slate-500">
-                            └ {m.nickname} ({m.position})
-                          </div>
-                        ))}
+                        {members.map((m) => {
+                          const soldPrice = memberSoldPrices[m.id];
+                          return (
+                            <div key={m.id} className="ml-4 flex items-center gap-1 text-slate-500">
+                              <span>└ {m.nickname} ({m.position})</span>
+                              {soldPrice !== undefined && (
+                                <span className="ml-auto text-xs text-amber-400">
+                                  {soldPrice}p
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                         {members.length === 0 && (
                           <div className="ml-4 text-slate-600">(팀원 없음)</div>
                         )}
@@ -1057,17 +1505,32 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         <main className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <AnimatePresence mode="wait">
-              {phase === "AUCTION" && (
+              {phase === "AUCTION" && !showRandomAssignPhase && (
                 <AuctionPhaseComponent
                   currentRole={currentRole}
                   teams={teams}
                   auctionState={auctionState}
                   myTeam={myTeam}
                   currentTarget={currentTarget}
+                  isPassed={passedMemberIds.has(auctionState.currentTargetId || "")}
                   onStartAuction={handleStartAuction}
                   onBid={handleBid}
                   onNextAuction={handleNextAuction}
                   onPass={handlePass}
+                />
+              )}
+
+              {/* 랜덤 배분 UI */}
+              {phase === "AUCTION" && showRandomAssignPhase && (
+                <RandomAssignPhase
+                  currentRole={currentRole}
+                  teams={teams}
+                  targetMembers={participantsWithOnlineStatus.filter((p) =>
+                    randomAssignTargets.includes(p.id)
+                  )}
+                  preCalculatedAssignments={preCalculatedAssignments}
+                  onStartRandomAssign={handleStartRandomAssign}
+                  onAnimationComplete={handleRandomAssignComplete}
                 />
               )}
 
@@ -1191,33 +1654,72 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                   </span>
                 </div>
                 <div className="grid grid-cols-8 gap-2">
-                  {auctionQueue.map((member, index) => (
-                    <motion.div
-                      key={member.id}
-                      className={`relative rounded-lg border px-2 py-2 text-center ${
-                        showOrder && index === 0
-                          ? "border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/30"
-                          : "border-slate-700/50 bg-slate-800/30"
-                      }`}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: index * 0.02 }}
-                      whileHover={{ scale: 1.05, y: -2, zIndex: 10 }}
-                    >
-                      {/* 순서 뱃지 - 셔플 이후에만 표시 */}
-                      {showOrder && (
-                        <div className={`absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
-                          index === 0
-                            ? "bg-amber-500 text-slate-900"
-                            : "bg-slate-700 text-slate-300"
-                        }`}>
-                          {member.order}
+                  {auctionQueue.map((member, index) => {
+                    const isCurrent = member.id === auctionState.currentTargetId;
+                    const soldPrice = memberSoldPrices[member.id];
+                    const isSold = soldPrice !== undefined;
+                    const isPassed = passedMemberIds.has(member.id);
+                    const passCount = memberPassCount[member.id] || 0;
+                    const isDoublePassed = passCount >= 2; // 재유찰
+
+                    return (
+                      <motion.div
+                        key={member.id}
+                        className={`relative rounded-lg border px-2 py-2 text-center ${
+                          isCurrent
+                            ? "border-amber-500/50 bg-amber-500/10 ring-2 ring-amber-500/50"
+                            : isSold
+                            ? "border-green-500/50 bg-green-500/10"
+                            : isDoublePassed
+                            ? "border-red-500/50 bg-red-500/10"
+                            : isPassed
+                            ? "border-orange-500/50 bg-orange-500/10"
+                            : "border-slate-700/50 bg-slate-800/30"
+                        }`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.02 }}
+                        whileHover={{ scale: 1.05, y: -2, zIndex: 10 }}
+                      >
+                        {/* 순서 뱃지 (좌상단) */}
+                        {showOrder && (
+                          <div className={`absolute -top-2 -left-2 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+                            isCurrent
+                              ? "bg-amber-500 text-slate-900"
+                              : "bg-slate-700 text-slate-300"
+                          }`}>
+                            {member.order}
+                          </div>
+                        )}
+
+                        {/* 낙찰됨 딱지 (우상단) */}
+                        {isSold && (
+                          <div className="absolute -top-1 -right-1 rounded bg-green-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">
+                            {soldPrice}p
+                          </div>
+                        )}
+
+                        {/* 재유찰 딱지 (우상단) - 2번 유찰된 경우, 빨간색 */}
+                        {isDoublePassed && !isSold && (
+                          <div className="absolute -top-1 -right-1 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">
+                            재유찰
+                          </div>
+                        )}
+
+                        {/* 유찰됨 딱지 (우상단) - 1번 유찰된 경우, 주황색 */}
+                        {isPassed && !isSold && !isDoublePassed && (
+                          <div className="absolute -top-1 -right-1 rounded bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow">
+                            유찰
+                          </div>
+                        )}
+
+                        <div className={`text-xs font-medium truncate ${isSold || isPassed ? "text-slate-400" : "text-slate-200"}`}>
+                          {member.nickname}
                         </div>
-                      )}
-                      <div className="text-xs font-medium text-slate-200 truncate">{member.nickname}</div>
-                      <div className="text-[10px] text-slate-500 truncate">{member.position}</div>
-                    </motion.div>
-                  ))}
+                        <div className="text-[10px] text-slate-500 truncate">{member.position}</div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             );
