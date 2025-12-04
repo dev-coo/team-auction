@@ -179,12 +179,21 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     }));
   }, [participants, onlineUsers]);
 
-  // 대기 중인 팀원 목록 (경매 순서대로)
+  // 대기 중인 팀원 목록 (셔플된 순서대로)
   const auctionQueue = useMemo(() => {
-    return participantsWithOnlineStatus
-      .filter((p) => p.role === "MEMBER" && p.teamId === null)
-      .map((p, index) => ({ ...p, order: index + 1 }));
-  }, [participantsWithOnlineStatus]);
+    const members = participantsWithOnlineStatus
+      .filter((p) => p.role === "MEMBER" && p.teamId === null);
+
+    // 셔플 완료 후에만 셔플된 순서 반영 (애니메이션 스포일러 방지)
+    if (shuffledOrder && shuffledOrder.length > 0 && shuffleState === "COMPLETE") {
+      return shuffledOrder
+        .map((id) => members.find((m) => m.id === id))
+        .filter((m): m is Participant => m !== undefined)
+        .map((m, index) => ({ ...m, order: index + 1 }));
+    }
+
+    return members.map((p, index) => ({ ...p, order: index + 1 }));
+  }, [participantsWithOnlineStatus, shuffledOrder, shuffleState]);
 
   // 현재 경매 대상 (auctionState 기반)
   const currentTarget = useMemo(() => {
