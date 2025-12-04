@@ -10,18 +10,52 @@ interface ChatMessage {
   content: string;
   timestamp: number;
 }
-import { AuctionPhase, AuctionRoom as AuctionRoomType, Team, Participant, ParticipantRole } from "@/types";
+import {
+  AuctionPhase,
+  AuctionRoom as AuctionRoomType,
+  Team,
+  Participant,
+  ParticipantRole,
+  AuctionState,
+  BidPayload,
+  SoldPayload,
+  PassedPayload,
+  AuctionStartPayload,
+} from "@/types";
 import { useRoomChannel, usePresence } from "@/lib/realtime";
-import { getAuctionById, getTeamsByRoomId, getParticipantsByRoomId } from "@/lib/api/auction";
+import {
+  getAuctionById,
+  getTeamsByRoomId,
+  getParticipantsByRoomId,
+  createBid,
+  recordSold,
+} from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
 import CaptainIntroPhase from "./components/phases/CaptainIntroPhase";
 import ShufflePhase, { ShuffleState } from "./components/phases/ShufflePhase";
+import AuctionPhaseComponent from "./components/phases/AuctionPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
-import { shuffleArray } from "@/lib/auction-utils";
+import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
+import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS } from "@/lib/constants";
 
-// 역할 목록 (테스트용)
-const roleOptions: ParticipantRole[] = ["HOST", "CAPTAIN", "MEMBER", "OBSERVER"];
+// AUCTION 상태 초기값
+const INITIAL_AUCTION_STATE: AuctionState = {
+  currentTargetId: null,
+  currentTargetIndex: 0,
+  totalTargets: 0,
+  auctionQueue: [],
+  timer: INITIAL_TIMER_SECONDS,
+  timerRunning: false,
+  currentPrice: 5,
+  highestBidTeamId: null,
+  bidHistory: [],
+  bidLockUntil: 0,
+  showSoldAnimation: false,
+  lastSoldInfo: null,
+  completedCount: 0,
+};
+
 
 export default function AuctionRoom({ params }: { params: Promise<{ id: string }> }) {
   // URL 파라미터
@@ -38,7 +72,6 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [phase, setPhase] = useState<AuctionPhase>("WAITING");
   const [currentRole, setCurrentRole] = useState<ParticipantRole>("OBSERVER"); // 기본값 OBSERVER
   const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
-  const [timer, setTimer] = useState(12);
   const [captainIntroIndex, setCaptainIntroIndex] = useState(0); // 팀장 소개 인덱스
   const [shuffleState, setShuffleState] = useState<ShuffleState>("GATHER");
   const [shuffledOrder, setShuffledOrder] = useState<string[] | null>(null);
@@ -49,6 +82,8 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [chatInput, setChatInput] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [announceInput, setAnnounceInput] = useState("");
+  // AUCTION 페이즈 상태
+  const [auctionState, setAuctionState] = useState<AuctionState>(INITIAL_AUCTION_STATE);
 
   // params Promise 해결
   useEffect(() => {
@@ -151,18 +186,19 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       .map((p, index) => ({ ...p, order: index + 1 }));
   }, [participantsWithOnlineStatus]);
 
-  // 현재 경매 대상
+  // 현재 경매 대상 (auctionState 기반)
   const currentTarget = useMemo(() => {
-    if (!room?.currentTargetId) return null;
-    return participantsWithOnlineStatus.find((p) => p.id === room.currentTargetId);
-  }, [room?.currentTargetId, participantsWithOnlineStatus]);
+    if (!auctionState.currentTargetId) return null;
+    return participantsWithOnlineStatus.find((p) => p.id === auctionState.currentTargetId);
+  }, [auctionState.currentTargetId, participantsWithOnlineStatus]);
 
-  // 현재 입찰 정보 (임시)
-  const currentBid = useMemo(() => ({
-    amount: 150,
-    teamId: teams[0]?.id || "",
-    teamName: teams[0]?.name || "",
-  }), [teams]);
+  // 현재 팀장의 팀 정보
+  const myTeam = useMemo(() => {
+    if (currentRole !== "CAPTAIN" || !currentParticipantId) return null;
+    const participant = participants.find((p) => p.id === currentParticipantId);
+    if (!participant?.teamId) return null;
+    return teams.find((t) => t.id === participant.teamId) || null;
+  }, [currentRole, currentParticipantId, participants, teams]);
 
   // 초대링크 모달용 teams with captain 데이터
   const teamsWithCaptain = useMemo(() => {
@@ -188,16 +224,6 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       };
     });
   }, [teams, participantsWithOnlineStatus]);
-
-  // 최소 입찰 단위 계산
-  const getMinBidUnit = (currentBid: number) => {
-    if (currentBid < 100) return 5;
-    if (currentBid < 200) return 10;
-    if (currentBid < 300) return 15;
-    return Math.floor(currentBid / 100) * 5;
-  };
-
-  const minBidUnit = getMinBidUnit(currentBid.amount);
 
   // Realtime 이벤트 핸들러
   const handleRealtimeEvent = useCallback((event: { type: string; payload: Record<string, unknown> }) => {
@@ -242,12 +268,124 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           },
         ]);
         break;
-      // 추후 다른 이벤트 핸들러 추가 예정
+      // AUCTION 페이즈 이벤트
+      case "AUCTION_START": {
+        const payload = event.payload as unknown as AuctionStartPayload;
+        setAuctionState((prev) => ({
+          ...prev,
+          currentTargetId: payload.targetId,
+          currentTargetIndex: payload.targetIndex,
+          totalTargets: payload.totalTargets,
+          timer: INITIAL_TIMER_SECONDS,
+          timerRunning: true,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          bidHistory: [],
+          bidLockUntil: 0,
+          showSoldAnimation: false,
+          lastSoldInfo: null,
+        }));
+        break;
+      }
+      case "BID": {
+        const payload = event.payload as unknown as BidPayload;
+        // 500ms 락 체크
+        setAuctionState((prev) => {
+          if (payload.timestamp < prev.bidLockUntil) {
+            // 락 기간 내 입찰 무시
+            return prev;
+          }
+          if (payload.amount <= prev.currentPrice) {
+            // 현재가보다 낮은 입찰 무시
+            return prev;
+          }
+          return {
+            ...prev,
+            currentPrice: payload.amount,
+            highestBidTeamId: payload.teamId,
+            timer: Math.min(payload.newTimer, INITIAL_TIMER_SECONDS),
+            bidLockUntil: payload.timestamp + 500,
+            bidHistory: [
+              {
+                teamId: payload.teamId,
+                teamName: payload.teamName,
+                teamColor: payload.teamColor,
+                amount: payload.amount,
+                timestamp: payload.timestamp,
+              },
+              ...prev.bidHistory,
+            ].slice(0, 10), // 최근 10개만 유지
+          };
+        });
+        break;
+      }
+      case "TIMER_SYNC": {
+        const serverTimer = event.payload.timer as number;
+        setAuctionState((prev) => {
+          // 1초 이상 차이나면 동기화
+          if (Math.abs(prev.timer - serverTimer) > 1) {
+            return { ...prev, timer: serverTimer };
+          }
+          return prev;
+        });
+        break;
+      }
+      case "SOLD": {
+        const payload = event.payload as unknown as SoldPayload;
+        // 팀 포인트 업데이트
+        setTeams((prev) =>
+          prev.map((t) => ({
+            ...t,
+            currentPoints: payload.updatedPoints[t.id] ?? t.currentPoints,
+          }))
+        );
+        // 팀원을 팀에 배정
+        setParticipants((prev) =>
+          prev.map((p) =>
+            p.id === payload.targetId
+              ? { ...p, teamId: payload.winnerTeamId }
+              : p
+          )
+        );
+        // 낙찰 애니메이션 표시
+        setAuctionState((prev) => ({
+          ...prev,
+          timerRunning: false,
+          showSoldAnimation: true,
+          lastSoldInfo: {
+            targetId: payload.targetId,
+            targetNickname: payload.targetNickname,
+            winnerTeamId: payload.winnerTeamId,
+            winnerTeamName: payload.winnerTeamName,
+            winnerTeamColor: payload.winnerTeamColor,
+            finalPrice: payload.finalPrice,
+            isAutoAssignment: payload.isAutoAssignment,
+          },
+          completedCount: prev.completedCount + 1,
+          auctionQueue: prev.auctionQueue.filter((id) => id !== payload.targetId),
+        }));
+        break;
+      }
+      case "PASSED": {
+        const payload = event.payload as unknown as PassedPayload;
+        setAuctionState((prev) => ({
+          ...prev,
+          currentTargetId: payload.nextTargetId,
+          auctionQueue: payload.newQueue,
+          timer: INITIAL_TIMER_SECONDS,
+          timerRunning: false,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          bidHistory: [],
+          bidLockUntil: 0,
+        }));
+        break;
+      }
     }
   }, []);
 
   // Realtime 채널 연결
-  const { broadcast, isConnected } = useRoomChannel(roomId, handleRealtimeEvent);
+  const { broadcast } = useRoomChannel(roomId, handleRealtimeEvent);
 
   // 다음 페이즈로 이동 (주최자용)
   const handleNextPhase = useCallback(() => {
@@ -365,19 +503,356 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     }
   }, [chatMessages]);
 
+  // AUCTION 타이머 로직
+  useEffect(() => {
+    if (!auctionState.timerRunning || phase !== "AUCTION") return;
+
+    const interval = setInterval(() => {
+      setAuctionState((prev) => {
+        if (prev.timer <= 1) {
+          // 타이머 종료 - HOST만 낙찰 처리
+          return { ...prev, timer: 0, timerRunning: false };
+        }
+        return { ...prev, timer: prev.timer - 1 };
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [auctionState.timerRunning, phase]);
+
+  // 타이머 0초 도달 시 자동 낙찰 (HOST만)
+  useEffect(() => {
+    if (
+      phase !== "AUCTION" ||
+      currentRole !== "HOST" ||
+      auctionState.timer !== 0 ||
+      auctionState.timerRunning ||
+      !auctionState.currentTargetId ||
+      auctionState.showSoldAnimation
+    ) {
+      return;
+    }
+
+    // 입찰자가 있으면 낙찰, 없으면 유찰 (수동 처리)
+    if (auctionState.highestBidTeamId) {
+      handleSold();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auctionState.timer, auctionState.timerRunning, phase, currentRole]);
+
+  // SHUFFLE 완료 후 경매 큐 초기화
+  useEffect(() => {
+    if (phase === "AUCTION" && shuffledOrder && auctionState.auctionQueue.length === 0) {
+      setAuctionState((prev) => ({
+        ...prev,
+        auctionQueue: shuffledOrder,
+        totalTargets: shuffledOrder.length,
+      }));
+    }
+  }, [phase, shuffledOrder, auctionState.auctionQueue.length]);
+
+  // 경매 시작 (주최자용)
+  const handleStartAuction = useCallback(() => {
+    if (!auctionState.auctionQueue.length) return;
+
+    const targetId = auctionState.auctionQueue[0];
+    const targetIndex = auctionState.currentTargetIndex;
+
+    setAuctionState((prev) => ({
+      ...prev,
+      currentTargetId: targetId,
+      timer: INITIAL_TIMER_SECONDS,
+      timerRunning: true,
+      currentPrice: 5,
+      highestBidTeamId: null,
+      bidHistory: [],
+      bidLockUntil: 0,
+      showSoldAnimation: false,
+      lastSoldInfo: null,
+    }));
+
+    broadcast("AUCTION_START", {
+      targetId,
+      targetIndex,
+      totalTargets: auctionState.totalTargets,
+      startTime: Date.now(),
+    });
+  }, [auctionState.auctionQueue, auctionState.currentTargetIndex, auctionState.totalTargets, broadcast]);
+
+  // 입찰 (팀장용)
+  const handleBid = useCallback(
+    async (amount: number) => {
+      if (!myTeam || !auctionState.currentTargetId || !roomId) return;
+
+      const now = Date.now();
+
+      // 500ms 락 체크
+      if (now < auctionState.bidLockUntil) {
+        console.log("입찰 처리 중...");
+        return;
+      }
+
+      // 유효성 검증
+      const minBid = getNextMinBid(auctionState.currentPrice);
+      if (amount < minBid) {
+        console.log(`최소 입찰가는 ${minBid}p 입니다`);
+        return;
+      }
+      if (amount > myTeam.currentPoints) {
+        console.log("포인트가 부족합니다");
+        return;
+      }
+
+      const newTimer = Math.min(
+        auctionState.timer + BID_TIME_EXTENSION_SECONDS,
+        INITIAL_TIMER_SECONDS
+      );
+
+      // 즉시 UI 업데이트 (낙관적 업데이트)
+      setAuctionState((prev) => ({
+        ...prev,
+        currentPrice: amount,
+        highestBidTeamId: myTeam.id,
+        timer: newTimer,
+        bidLockUntil: now + 500,
+        bidHistory: [
+          {
+            teamId: myTeam.id,
+            teamName: myTeam.name,
+            teamColor: myTeam.color,
+            amount,
+            timestamp: now,
+          },
+          ...prev.bidHistory,
+        ].slice(0, 10),
+      }));
+
+      // 브로드캐스트
+      broadcast("BID", {
+        teamId: myTeam.id,
+        teamName: myTeam.name,
+        teamColor: myTeam.color,
+        amount,
+        timestamp: now,
+        newTimer,
+      });
+
+      // DB 저장 (fire and forget)
+      try {
+        await createBid({
+          roomId,
+          teamId: myTeam.id,
+          targetId: auctionState.currentTargetId,
+          amount,
+        });
+      } catch (err) {
+        console.error("입찰 기록 실패:", err);
+      }
+    },
+    [myTeam, auctionState, roomId, broadcast]
+  );
+
+  // 낙찰 처리 (주최자용)
+  const handleSold = useCallback(async () => {
+    if (!auctionState.currentTargetId || !auctionState.highestBidTeamId || !roomId) return;
+
+    const winnerTeam = teams.find((t) => t.id === auctionState.highestBidTeamId);
+    const target = participantsWithOnlineStatus.find((p) => p.id === auctionState.currentTargetId);
+    if (!winnerTeam || !target) return;
+
+    const finalPrice = auctionState.currentPrice;
+    const auctionOrder = auctionState.completedCount + 1;
+
+    // 업데이트된 포인트 계산
+    const updatedPoints: Record<string, number> = {};
+    teams.forEach((t) => {
+      updatedPoints[t.id] =
+        t.id === winnerTeam.id ? t.currentPoints - finalPrice : t.currentPoints;
+    });
+
+    // 로컬 상태 업데이트
+    setTeams((prev) =>
+      prev.map((t) => ({
+        ...t,
+        currentPoints: updatedPoints[t.id] ?? t.currentPoints,
+      }))
+    );
+    setParticipants((prev) =>
+      prev.map((p) =>
+        p.id === target.id ? { ...p, teamId: winnerTeam.id } : p
+      )
+    );
+    setAuctionState((prev) => ({
+      ...prev,
+      timerRunning: false,
+      showSoldAnimation: true,
+      lastSoldInfo: {
+        targetId: target.id,
+        targetNickname: target.nickname,
+        winnerTeamId: winnerTeam.id,
+        winnerTeamName: winnerTeam.name,
+        winnerTeamColor: winnerTeam.color,
+        finalPrice,
+      },
+      completedCount: prev.completedCount + 1,
+      auctionQueue: prev.auctionQueue.filter((id) => id !== target.id),
+    }));
+
+    // 브로드캐스트
+    broadcast("SOLD", {
+      targetId: target.id,
+      targetNickname: target.nickname,
+      winnerTeamId: winnerTeam.id,
+      winnerTeamName: winnerTeam.name,
+      winnerTeamColor: winnerTeam.color,
+      finalPrice,
+      nextTargetId: null,
+      updatedPoints,
+      auctionOrder,
+    });
+
+    // DB 저장
+    try {
+      await recordSold({
+        roomId,
+        targetId: target.id,
+        winnerTeamId: winnerTeam.id,
+        finalPrice,
+        auctionOrder,
+      });
+    } catch (err) {
+      console.error("낙찰 기록 실패:", err);
+    }
+  }, [auctionState, teams, participantsWithOnlineStatus, roomId, broadcast]);
+
+  // 다음 경매 (주최자용) - 낙찰 애니메이션 후 호출
+  const handleNextAuction = useCallback(() => {
+    const remainingQueue = auctionState.auctionQueue;
+
+    // 마지막 1명 체크
+    if (remainingQueue.length === 1) {
+      // 자동 배정 처리
+      const lastMemberId = remainingQueue[0];
+      const lastMember = participantsWithOnlineStatus.find((p) => p.id === lastMemberId);
+      const availableTeam = teams.find(
+        (t) =>
+          participantsWithOnlineStatus.filter((p) => p.teamId === t.id && p.role === "MEMBER")
+            .length < room!.memberPerTeam
+      );
+
+      if (lastMember && availableTeam) {
+        const updatedPoints: Record<string, number> = {};
+        teams.forEach((t) => {
+          updatedPoints[t.id] = t.currentPoints;
+        });
+
+        setTeams((prev) => prev);
+        setParticipants((prev) =>
+          prev.map((p) =>
+            p.id === lastMemberId ? { ...p, teamId: availableTeam.id } : p
+          )
+        );
+        setAuctionState((prev) => ({
+          ...prev,
+          timerRunning: false,
+          showSoldAnimation: true,
+          lastSoldInfo: {
+            targetId: lastMember.id,
+            targetNickname: lastMember.nickname,
+            winnerTeamId: availableTeam.id,
+            winnerTeamName: availableTeam.name,
+            winnerTeamColor: availableTeam.color,
+            finalPrice: 0,
+            isAutoAssignment: true,
+          },
+          completedCount: prev.completedCount + 1,
+          auctionQueue: [],
+        }));
+
+        broadcast("SOLD", {
+          targetId: lastMember.id,
+          targetNickname: lastMember.nickname,
+          winnerTeamId: availableTeam.id,
+          winnerTeamName: availableTeam.name,
+          winnerTeamColor: availableTeam.color,
+          finalPrice: 0,
+          nextTargetId: null,
+          updatedPoints,
+          isAutoAssignment: true,
+          auctionOrder: auctionState.completedCount + 1,
+        });
+
+        // DB 저장
+        recordSold({
+          roomId: roomId!,
+          targetId: lastMember.id,
+          winnerTeamId: availableTeam.id,
+          finalPrice: 0,
+          auctionOrder: auctionState.completedCount + 1,
+        }).catch(console.error);
+
+        return;
+      }
+    }
+
+    // 경매 완료 체크
+    if (remainingQueue.length === 0) {
+      setPhase("FINISHED");
+      broadcast("PHASE_CHANGE", { phase: "FINISHED" });
+      return;
+    }
+
+    // 다음 대상으로
+    const nextTargetId = remainingQueue[0];
+    setAuctionState((prev) => ({
+      ...prev,
+      currentTargetId: nextTargetId,
+      currentTargetIndex: prev.currentTargetIndex + 1,
+      timer: INITIAL_TIMER_SECONDS,
+      timerRunning: false,
+      currentPrice: 5,
+      highestBidTeamId: null,
+      bidHistory: [],
+      bidLockUntil: 0,
+      showSoldAnimation: false,
+      lastSoldInfo: null,
+    }));
+  }, [auctionState, participantsWithOnlineStatus, teams, room, roomId, broadcast]);
+
+  // 유찰 처리 (주최자용)
+  const handlePass = useCallback(() => {
+    if (!auctionState.currentTargetId || auctionState.auctionQueue.length === 0) return;
+
+    // 현재 대상을 맨 뒤로
+    const currentId = auctionState.auctionQueue[0];
+    const newQueue = [...auctionState.auctionQueue.slice(1), currentId];
+    const nextTargetId = newQueue[0];
+
+    setAuctionState((prev) => ({
+      ...prev,
+      currentTargetId: nextTargetId,
+      auctionQueue: newQueue,
+      timer: INITIAL_TIMER_SECONDS,
+      timerRunning: false,
+      currentPrice: 5,
+      highestBidTeamId: null,
+      bidHistory: [],
+      bidLockUntil: 0,
+    }));
+
+    broadcast("PASSED", {
+      targetId: currentId,
+      nextTargetId,
+      newQueue,
+    });
+  }, [auctionState, broadcast]);
+
   const phaseLabels: Record<AuctionPhase, { emoji: string; label: string; color: string; bg: string }> = {
     WAITING: { emoji: "🔴", label: "대기 중", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
     CAPTAIN_INTRO: { emoji: "📢", label: "팀장 소개", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/30" },
     SHUFFLE: { emoji: "🎲", label: "팀원 셔플", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/30" },
     AUCTION: { emoji: "⚡", label: "경매 진행 중", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/30" },
     FINISHED: { emoji: "🏆", label: "경매 종료", color: "text-green-400", bg: "bg-green-500/10 border-green-500/30" },
-  };
-
-  const roleLabels: Record<ParticipantRole, { label: string; color: string }> = {
-    HOST: { label: "주최자", color: "text-red-400 bg-red-500/10 border-red-500/30" },
-    CAPTAIN: { label: "팀장", color: "text-amber-400 bg-amber-500/10 border-amber-500/30" },
-    MEMBER: { label: "팀원", color: "text-blue-400 bg-blue-500/10 border-blue-500/30" },
-    OBSERVER: { label: "관전자", color: "text-slate-400 bg-slate-500/10 border-slate-500/30" },
   };
 
   // 로딩 상태
@@ -536,90 +1011,18 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         <main className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <AnimatePresence mode="wait">
-              {phase === "AUCTION" && currentTarget && (
-                <motion.div
-                  key="auction"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="flex h-full flex-col items-center justify-center"
-                >
-                  {/* Current target */}
-                  <div className="mb-8 text-center">
-                    <p className="mb-2 text-sm text-slate-400">현재 경매 대상</p>
-                    <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-500/20 to-purple-500/20 text-5xl">
-                      👤
-                    </div>
-                    <h2 className="text-3xl font-bold text-slate-200">
-                      {currentTarget.nickname}
-                    </h2>
-                    <p className="mt-1 text-lg text-amber-400">{currentTarget.position}</p>
-                    <p className="mt-2 text-slate-400">&ldquo;{currentTarget.description}&rdquo;</p>
-                  </div>
-
-                  {/* Timer */}
-                  <div className="mb-8 w-full max-w-md">
-                    <div className="mb-2 flex items-center justify-center gap-2">
-                      <span className="text-4xl font-bold text-slate-200">{timer}</span>
-                      <span className="text-xl text-slate-400">초</span>
-                    </div>
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-700">
-                      <motion.div
-                        className={`h-full rounded-full ${timer <= 3 ? "bg-red-500" : "bg-amber-500"}`}
-                        initial={{ width: "100%" }}
-                        animate={{ width: `${(timer / 15) * 100}%` }}
-                        transition={{ duration: 0.3 }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Current bid info */}
-                  <div className="mb-8 text-center">
-                    <p className="text-sm text-slate-400">현재 입찰가</p>
-                    <p className="text-4xl font-bold text-amber-400">
-                      {currentBid.amount}
-                      <span className="text-2xl">p</span>
-                    </p>
-                    <p className="mt-1 text-slate-400">
-                      최고 입찰자: <span className="text-slate-200">{currentBid.teamName}</span>
-                    </p>
-                  </div>
-
-                  {/* Bid buttons - 팀장만 표시 */}
-                  {currentRole === "CAPTAIN" ? (
-                    <div className="flex gap-4">
-                      <motion.button
-                        className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 text-lg font-bold text-slate-900 shadow-xl shadow-amber-500/30"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        +{minBidUnit} 입찰
-                      </motion.button>
-                      <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/50 px-4">
-                        <input
-                          type="number"
-                          min="0"
-                          placeholder="직접 입력"
-                          className="w-24 bg-transparent py-4 text-center text-slate-200 outline-none placeholder:text-slate-500"
-                        />
-                        <motion.button
-                          className="rounded-full bg-slate-700 px-4 py-2 text-sm font-medium text-slate-200"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          입찰
-                        </motion.button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="rounded-full bg-slate-800/50 px-6 py-3 text-slate-400">
-                        👀 관전 중
-                      </div>
-                      <p className="text-sm text-slate-500">팀장만 입찰할 수 있습니다</p>
-                    </div>
-                  )}
-                </motion.div>
+              {phase === "AUCTION" && (
+                <AuctionPhaseComponent
+                  currentRole={currentRole}
+                  teams={teams}
+                  auctionState={auctionState}
+                  myTeam={myTeam}
+                  currentTarget={currentTarget}
+                  onStartAuction={handleStartAuction}
+                  onBid={handleBid}
+                  onNextAuction={handleNextAuction}
+                  onPass={handlePass}
+                />
               )}
 
               {phase === "WAITING" && (
