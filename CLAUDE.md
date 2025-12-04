@@ -81,7 +81,6 @@ src/app/room/[id]/
 ```
 room:{roomId}        # Broadcast 전용 (페이즈, 입찰, 타이머, 채팅)
 presence:{roomId}    # Presence 전용 (접속자 상태) - 분리 필수!
-team:{teamId}        # 팀 채팅 (Broadcast)
 ```
 
 **주의**: `room:` 채널과 `presence:` 채널을 분리해야 함. 같은 채널명으로 Broadcast와 Presence를 함께 사용하면 충돌 발생.
@@ -104,9 +103,7 @@ src/lib/
 // 경매방 채널 구독 (Broadcast 전용)
 const { channel, isConnected, broadcast } = useRoomChannel(roomId, onEvent);
 broadcast("BID", { amount: 100, teamId: "..." });
-
-// 팀 채팅 채널
-const { channel, isConnected, sendMessage } = useTeamChannel(teamId, onMessage);
+broadcast("CHAT", { sender: "닉네임", content: "메시지" });
 
 // 접속자 상태 (별도 Presence 채널)
 const { onlineUsers } = usePresence(roomId, userId, { nickname, role });
