@@ -245,6 +245,16 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
     return teams.find((t) => t.id === participant.teamId) || null;
   }, [currentRole, currentParticipantId, participants, teams]);
 
+  // 현재 팀장의 팀이 가득 찼는지 확인 (팀원 수 >= memberPerTeam - 1)
+  const isMyTeamFull = useMemo(() => {
+    if (!myTeam || !room) return false;
+    const memberCount = participantsWithOnlineStatus.filter(
+      (p) => p.teamId === myTeam.id && p.role === "MEMBER"
+    ).length;
+    // memberPerTeam은 팀장 포함이므로, 팀원 자리는 memberPerTeam - 1개
+    return memberCount >= room.memberPerTeam - 1;
+  }, [myTeam, room, participantsWithOnlineStatus]);
+
   // 초대링크 모달용 teams with captain 데이터
   const teamsWithCaptain = useMemo(() => {
     return teams.map((team) => {
@@ -1535,6 +1545,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                   myTeam={myTeam}
                   currentTarget={currentTarget}
                   isPassed={passedMemberIds.has(auctionState.currentTargetId || "")}
+                  isTeamFull={isMyTeamFull}
                   onStartAuction={handleStartAuction}
                   onBid={handleBid}
                   onNextAuction={handleNextAuction}
