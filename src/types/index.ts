@@ -91,12 +91,18 @@ export type RealtimeEventType =
   | "SHUFFLE_REVEAL"
   | "SHUFFLE_COMPLETE"
   | "AUCTION_START"
+  | "NEXT_TARGET"
   | "BID"
   | "TIMER_SYNC"
   | "SOLD"
   | "PASSED"
+  | "NEXT_ROUND"
+  | "AUTO_ASSIGN"
   | "CHAT"
-  | "ANNOUNCE";
+  | "ANNOUNCE"
+  | "RANDOM_ASSIGN_START"
+  | "RANDOM_ASSIGN_ANIMATING"
+  | "RANDOM_ASSIGN_COMPLETE";
 
 // AUCTION 페이즈 Realtime 이벤트 페이로드
 export interface AuctionStartPayload {
@@ -130,8 +136,23 @@ export interface SoldPayload {
 
 export interface PassedPayload {
   targetId: string;
-  nextTargetId: string;
-  newQueue: string[];
+  nextTargetId: string | null;
+  nextIndex: number;
+}
+
+export interface NextRoundPayload {
+  round: number;
+  firstTargetId: string;
+  firstTargetIndex: number;
+}
+
+export interface AutoAssignPayload {
+  assignments: { memberId: string; teamId: string; teamName: string; teamColor: string }[];
+}
+
+export interface NextTargetPayload {
+  targetId: string;
+  targetIndex: number;
 }
 
 // AUCTION 페이즈 상태
