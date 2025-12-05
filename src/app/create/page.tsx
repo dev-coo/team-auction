@@ -8,6 +8,7 @@ import InviteLinksModal from "@/components/InviteLinksModal";
 import { AuctionRoom, Team, Participant } from "@/types";
 
 const DRAFT_KEY = "auction_draft";
+const LAST_CREATED_KEY = "last_created_auction";
 
 interface DraftData {
   formData: {
@@ -19,6 +20,7 @@ interface DraftData {
   captains: PersonInput[];
   members: PersonInput[];
   savedAt: string;
+  roomId?: string; // 생성 완료된 방의 ID (마지막 생성 방용)
 }
 
 interface PersonInput {
@@ -66,18 +68,39 @@ export default function CreateAuction() {
   // 임시 저장 관련
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [savedDraft, setSavedDraft] = useState<DraftData | null>(null);
+  const [lastCreated, setLastCreated] = useState<DraftData | null>(null);
 
-  // 임시 저장 불러오기
+  // 임시 저장 및 마지막 생성 방 불러오기
   useEffect(() => {
-    const saved = localStorage.getItem(DRAFT_KEY);
-    if (saved) {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    const lastCreatedData = localStorage.getItem(LAST_CREATED_KEY);
+
+    let hasDraft = false;
+    let hasLastCreated = false;
+
+    if (draft) {
       try {
-        const draft: DraftData = JSON.parse(saved);
-        setSavedDraft(draft);
-        setShowDraftModal(true);
+        const parsed: DraftData = JSON.parse(draft);
+        setSavedDraft(parsed);
+        hasDraft = true;
       } catch {
         localStorage.removeItem(DRAFT_KEY);
       }
+    }
+
+    if (lastCreatedData) {
+      try {
+        const parsed: DraftData = JSON.parse(lastCreatedData);
+        setLastCreated(parsed);
+        hasLastCreated = true;
+      } catch {
+        localStorage.removeItem(LAST_CREATED_KEY);
+      }
+    }
+
+    // 둘 중 하나라도 있으면 모달 표시
+    if (hasDraft || hasLastCreated) {
+      setShowDraftModal(true);
     }
   }, []);
 
@@ -122,16 +145,37 @@ export default function CreateAuction() {
     setShowDraftModal(false);
   };
 
-  // 임시 저장 삭제
-  const discardDraft = () => {
-    localStorage.removeItem(DRAFT_KEY);
-    setSavedDraft(null);
+  // 마지막 생성 방 복구
+  const restoreLastCreated = () => {
+    if (lastCreated) {
+      setFormData(lastCreated.formData);
+      setCaptains(lastCreated.captains);
+      setMembers(lastCreated.members);
+    }
+    setShowDraftModal(false);
+  };
+
+  // 새로 작성 (모달 닫기만)
+  const startFresh = () => {
     setShowDraftModal(false);
   };
 
   // 임시 저장 수동 삭제
   const clearDraft = () => {
     localStorage.removeItem(DRAFT_KEY);
+  };
+
+  // 마지막 생성 방 저장
+  const saveLastCreated = (roomId: string) => {
+    const data: DraftData = {
+      formData,
+      captains,
+      members,
+      savedAt: new Date().toISOString(),
+      roomId,
+    };
+    localStorage.setItem(LAST_CREATED_KEY, JSON.stringify(data));
+    clearDraft(); // 임시 저장은 삭제
   };
 
   // 기본 설정 변경
@@ -302,8 +346,8 @@ export default function CreateAuction() {
 
       setCreateResult(result);
       setShowModal(true);
-      // 성공 시 임시 저장 삭제
-      clearDraft();
+      // 성공 시 마지막 생성 방으로 저장
+      saveLastCreated(result.room.id);
     } catch (error) {
       console.error("경매 생성 실패:", error);
       setErrors({
@@ -687,9 +731,9 @@ export default function CreateAuction() {
         />
       )}
 
-      {/* 임시 저장 복구 모달 */}
+      {/* 저장된 데이터 복구 모달 */}
       <AnimatePresence>
-        {showDraftModal && savedDraft && (
+        {showDraftModal && (savedDraft || lastCreated) && (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             initial={{ opacity: 0 }}
@@ -703,50 +747,73 @@ export default function CreateAuction() {
               exit={{ scale: 0.9, opacity: 0 }}
             >
               <div className="mb-4 text-center">
-                <div className="mb-2 text-4xl">💾</div>
+                <div className="mb-2 text-4xl">📋</div>
                 <h2 className="text-xl font-bold text-slate-200">
-                  작성 중인 내용이 있습니다
+                  이전 데이터가 있습니다
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  {new Date(savedDraft.savedAt).toLocaleString("ko-KR")}에 저장됨
+                  불러올 데이터를 선택하세요
                 </p>
               </div>
 
-              <div className="mb-6 rounded-lg border border-slate-700/50 bg-slate-800/50 p-4 text-sm">
-                <div className="space-y-1 text-slate-300">
-                  {savedDraft.formData.title && (
-                    <p>
-                      <span className="text-slate-500">제목:</span>{" "}
-                      {savedDraft.formData.title}
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-slate-500">팀장:</span>{" "}
-                    {savedDraft.captains.filter((c) => c.nickname.trim()).length}
-                    명 등록
-                  </p>
-                  <p>
-                    <span className="text-slate-500">팀원:</span>{" "}
-                    {savedDraft.members.filter((m) => m.nickname.trim()).length}명
-                    등록
-                  </p>
-                </div>
+              <div className="mb-6 space-y-3">
+                {/* 임시 저장 */}
+                {savedDraft && (
+                  <button
+                    onClick={restoreDraft}
+                    className="w-full rounded-lg border border-slate-700/50 bg-slate-800/50 p-4 text-left transition-all hover:border-amber-500/50 hover:bg-slate-800"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">💾</span>
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-200">작성 중인 내용</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(savedDraft.savedAt).toLocaleString("ko-KR")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">
+                      {savedDraft.formData.title && (
+                        <span className="mr-3">제목: {savedDraft.formData.title}</span>
+                      )}
+                      팀장 {savedDraft.captains.filter((c) => c.nickname.trim()).length}명,
+                      팀원 {savedDraft.members.filter((m) => m.nickname.trim()).length}명
+                    </div>
+                  </button>
+                )}
+
+                {/* 마지막 생성 방 */}
+                {lastCreated && (
+                  <button
+                    onClick={restoreLastCreated}
+                    className="w-full rounded-lg border border-slate-700/50 bg-slate-800/50 p-4 text-left transition-all hover:border-green-500/50 hover:bg-slate-800"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🔄</span>
+                      <div className="flex-1">
+                        <p className="font-medium text-slate-200">마지막 생성 방</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(lastCreated.savedAt).toLocaleString("ko-KR")} 생성
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">
+                      {lastCreated.formData.title && (
+                        <span className="mr-3">제목: {lastCreated.formData.title}</span>
+                      )}
+                      팀장 {lastCreated.captains.filter((c) => c.nickname.trim()).length}명,
+                      팀원 {lastCreated.members.filter((m) => m.nickname.trim()).length}명
+                    </div>
+                  </button>
+                )}
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={discardDraft}
-                  className="flex-1 rounded-full border border-slate-600 bg-slate-800/50 px-4 py-3 font-medium text-slate-300 transition-all hover:border-slate-500"
-                >
-                  새로 작성
-                </button>
-                <button
-                  onClick={restoreDraft}
-                  className="flex-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-4 py-3 font-bold text-slate-900 shadow-lg shadow-amber-500/30 transition-all hover:shadow-amber-500/50"
-                >
-                  불러오기
-                </button>
-              </div>
+              <button
+                onClick={startFresh}
+                className="w-full rounded-full border border-slate-600 bg-slate-800/50 px-4 py-3 font-medium text-slate-300 transition-all hover:border-slate-500"
+              >
+                새로 작성
+              </button>
             </motion.div>
           </motion.div>
         )}

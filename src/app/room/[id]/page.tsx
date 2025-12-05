@@ -32,6 +32,7 @@ import {
   getParticipantsByRoomId,
   createBid,
   recordSold,
+  resetAuction,
 } from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
@@ -91,6 +92,8 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const [auctionState, setAuctionState] = useState<AuctionState>(INITIAL_AUCTION_STATE);
   // 팀원별 낙찰 가격 (memberId -> soldPrice)
   const [memberSoldPrices, setMemberSoldPrices] = useState<Record<string, number>>({});
+  // 초기화 중 상태
+  const [isResetting, setIsResetting] = useState(false);
   // 유찰된 멤버 ID 목록 (현재 라운드)
   const [passedMemberIds, setPassedMemberIds] = useState<Set<string>>(new Set());
   // 멤버별 유찰 횟수 (memberId -> passCount) - 2번 유찰 시 랜덤 배분
@@ -536,6 +539,23 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       broadcast("PHASE_CHANGE", { phase: nextPhase });
     }
   }, [phase, broadcast]);
+
+  // 경매 초기화 (디버그용)
+  const handleReset = useCallback(async () => {
+    if (!roomId) return;
+
+    setIsResetting(true);
+    try {
+      await resetAuction(roomId);
+      // 페이지 새로고침으로 모든 상태 초기화
+      window.location.reload();
+    } catch (err) {
+      console.error("초기화 실패:", err);
+      alert("초기화 실패: " + (err instanceof Error ? err.message : "알 수 없는 오류"));
+    } finally {
+      setIsResetting(false);
+    }
+  }, [roomId]);
 
   // 다음 팀장 소개 (주최자용)
   const handleNextCaptain = useCallback(() => {
@@ -1404,6 +1424,8 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
               currentPhase={phase}
               onRoleChange={setCurrentRole}
               onPhaseChange={setPhase}
+              onReset={handleReset}
+              isResetting={isResetting}
             />
           </div>
         </div>

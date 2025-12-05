@@ -590,3 +590,90 @@ export async function getAuctionResultsByRoomId(
 
   return data.map(mapAuctionResultToType);
 }
+
+// ============================================
+// 경매 초기화 (디버그용)
+// ============================================
+
+/**
+ * 경매방 초기화 (디버그용)
+ * - phase를 WAITING으로
+ * - MEMBER의 team_id, auction_order를 null로
+ * - teams의 current_points를 초기값으로
+ * - auction_results, bids 삭제
+ */
+export async function resetAuction(roomId: string): Promise<void> {
+  // 1. 경매방 정보 조회
+  const { data: room, error: roomError } = await supabase
+    .from("auction_rooms")
+    .select("total_points")
+    .eq("id", roomId)
+    .single();
+
+  if (roomError || !room) {
+    throw new Error("경매방을 찾을 수 없습니다");
+  }
+
+  // 2. 팀 정보 조회 (captain_points 포함)
+  const { data: teams, error: teamsError } = await supabase
+    .from("teams")
+    .select("id, captain_points")
+    .eq("room_id", roomId);
+
+  if (teamsError) {
+    throw new Error(`팀 조회 실패: ${teamsError.message}`);
+  }
+
+  // 3. auction_rooms 테이블: phase를 WAITING으로
+  const { error: updateRoomError } = await supabase
+    .from("auction_rooms")
+    .update({ phase: "WAITING", current_target_id: null })
+    .eq("id", roomId);
+
+  if (updateRoomError) {
+    throw new Error(`경매방 초기화 실패: ${updateRoomError.message}`);
+  }
+
+  // 4. participants 테이블: MEMBER의 team_id, auction_order를 null로
+  const { error: updateParticipantsError } = await supabase
+    .from("participants")
+    .update({ team_id: null, auction_order: null })
+    .eq("room_id", roomId)
+    .eq("role", "MEMBER");
+
+  if (updateParticipantsError) {
+    throw new Error(`참가자 초기화 실패: ${updateParticipantsError.message}`);
+  }
+
+  // 5. teams 테이블: current_points를 초기값으로
+  for (const team of teams || []) {
+    const { error: updateTeamError } = await supabase
+      .from("teams")
+      .update({ current_points: room.total_points - team.captain_points })
+      .eq("id", team.id);
+
+    if (updateTeamError) {
+      throw new Error(`팀 포인트 초기화 실패: ${updateTeamError.message}`);
+    }
+  }
+
+  // 6. auction_results 테이블: 삭제
+  const { error: deleteResultsError } = await supabase
+    .from("auction_results")
+    .delete()
+    .eq("room_id", roomId);
+
+  if (deleteResultsError) {
+    throw new Error(`경매 결과 삭제 실패: ${deleteResultsError.message}`);
+  }
+
+  // 7. bids 테이블: 삭제
+  const { error: deleteBidsError } = await supabase
+    .from("bids")
+    .delete()
+    .eq("room_id", roomId);
+
+  if (deleteBidsError) {
+    throw new Error(`입찰 기록 삭제 실패: ${deleteBidsError.message}`);
+  }
+}
