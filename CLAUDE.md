@@ -44,11 +44,12 @@ src/app/room/[id]/
   components/
     DebugControls.tsx         # 디버그용 역할/페이즈 강제 선택 UI
     phases/
-      WaitingPhase.tsx        # ✅ WAITING 페이즈 (역할별 UI + 인프라 연동 완료)
-      CaptainIntroPhase.tsx   # ⏳ CAPTAIN_INTRO 페이즈 (예정)
-      ShufflePhase.tsx        # ⏳ SHUFFLE 페이즈 (예정)
-      AuctionPhase.tsx        # ⏳ AUCTION 페이즈 (예정)
-      FinishedPhase.tsx       # ⏳ FINISHED 페이즈 (예정)
+      WaitingPhase.tsx        # ✅ WAITING 페이즈 (역할별 UI + 인프라 연동)
+      CaptainIntroPhase.tsx   # ✅ CAPTAIN_INTRO 페이즈 (팀장 소개)
+      ShufflePhase.tsx        # ✅ SHUFFLE 페이즈 (경매 순서 셔플)
+      AuctionPhase.tsx        # ✅ AUCTION 페이즈 (입찰 진행)
+      FinishedPhase.tsx       # ✅ FINISHED 페이즈 (결과 순번 표시)
+      RandomAssignPhase.tsx   # ✅ 랜덤 배분 페이즈 (유찰자 자동 배정)
 ```
 
 #### 페이즈별 역할 UI 매트릭스
@@ -63,7 +64,7 @@ src/app/room/[id]/
 
 #### 개발 진행 방식
 - **순서**: 페이즈별 UI → 인프라 연동 → 다음 페이즈 UI → 다음 인프라
-- **현재**: WAITING 페이즈 완료 (UI + 인프라), CAPTAIN_INTRO 예정
+- **현재**: 모든 페이즈 구현 완료
 - **타이머**: Edge Function (서버리스)으로 서버 기준 타이머 (AUCTION 페이즈)
 - **낙찰 후 진행**: 주최자가 "다음" 버튼 클릭
 
@@ -124,6 +125,12 @@ useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
 - **Captain Points**: 팀장별 개별 포인트 설정 가능 (기본값 0)
   - 팀 시작 포인트 = 총 포인트 - 팀장 포인트
   - 예: 총 1000p, 팀장 200p → 해당 팀 800p로 시작
+- **팀 풀 제한**: 팀원이 다 찬 팀장은 입찰 불가
+
+### Finished Phase 순번 계산
+- 남은 포인트 기준 내림차순 정렬
+- 동일 포인트 시 동일 순번 (Standard Competition Ranking: 1, 2, 2, 4)
+- 팀장 + 팀원을 가로로 나열하여 표시
 
 ## Database Setup
 
