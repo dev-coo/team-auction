@@ -40,6 +40,7 @@ import CaptainIntroPhase from "./components/phases/CaptainIntroPhase";
 import ShufflePhase, { ShuffleState } from "./components/phases/ShufflePhase";
 import AuctionPhaseComponent from "./components/phases/AuctionPhase";
 import RandomAssignPhase from "./components/phases/RandomAssignPhase";
+import FinishedPhase from "./components/phases/FinishedPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
 import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, TIMER_INTERVAL_MS } from "@/lib/constants";
@@ -1604,33 +1605,10 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
               {/* 경매 종료 페이즈 */}
               {phase === "FINISHED" && (
-                <motion.div
-                  key="finished"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex h-full flex-col items-center justify-center text-center"
-                >
-                  <motion.div
-                    className="mb-6 text-8xl"
-                    animate={{
-                      rotate: [0, 10, -10, 10, 0],
-                      scale: [1, 1.1, 1]
-                    }}
-                    transition={{ duration: 0.5 }}
-                  >
-                    🏆
-                  </motion.div>
-                  <h2 className="mb-2 text-4xl font-bold text-amber-400">경매 종료!</h2>
-                  <p className="mb-8 text-xl text-slate-400">모든 팀 구성이 완료되었습니다</p>
-
-                  <motion.button
-                    className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-8 py-4 text-lg font-bold text-slate-900 shadow-xl shadow-amber-500/30"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    결과 보기 →
-                  </motion.button>
-                </motion.div>
+                <FinishedPhase
+                  teams={teams}
+                  participants={participantsWithOnlineStatus}
+                />
               )}
             </AnimatePresence>
           </div>
