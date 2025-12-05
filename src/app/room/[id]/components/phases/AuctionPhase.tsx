@@ -17,6 +17,7 @@ interface AuctionPhaseProps {
   auctionState: AuctionState;
   myTeam: Team | null;
   currentTarget: Participant | null | undefined;
+  isPassed: boolean; // 현재 대상이 유찰된 상태인지 (버그 3 해결)
   onStartAuction: () => void;
   onBid: (amount: number) => void;
   onNextAuction: () => void;
@@ -29,6 +30,7 @@ export default function AuctionPhase({
   auctionState,
   myTeam,
   currentTarget,
+  isPassed,
   onStartAuction,
   onBid,
   onNextAuction,
@@ -55,6 +57,9 @@ export default function AuctionPhase({
   // 최소 입찰 단위
   const minBidUnit = getMinBidUnit(currentPrice);
   const nextMinBid = getNextMinBid(currentPrice);
+
+  // 현재 팀이 최고 입찰자인지 체크
+  const isHighestBidder = !!(myTeam && highestBidTeamId === myTeam.id);
 
   // 직접 입찰 처리
   const handleCustomBid = () => {
@@ -176,6 +181,33 @@ export default function AuctionPhase({
         </span>
       </div>
 
+      {/* 매물 소개 상태 표시 - 타이머가 초기값(15초)이고 아직 시작 안 했을 때만 */}
+      {!timerRunning && !showSoldAnimation && !isPassed && timer === INITIAL_TIMER_SECONDS && (
+        <div className="mb-4 text-center">
+          <span className="rounded-full bg-blue-500/20 px-4 py-1 text-sm font-medium text-blue-400">
+            📢 매물 소개
+          </span>
+        </div>
+      )}
+
+      {/* 경매 종료 - 유찰 대기 상태 (타이머 0초, 입찰자 없음) */}
+      {!timerRunning && !showSoldAnimation && !isPassed && timer === 0 && !highestBidTeamId && (
+        <div className="mb-4 text-center">
+          <span className="rounded-full bg-red-500/20 px-4 py-1 text-sm font-medium text-red-400">
+            ⏱️ 경매 종료 - 유찰 대기
+          </span>
+        </div>
+      )}
+
+      {/* 유찰된 상태 표시 */}
+      {isPassed && !timerRunning && !showSoldAnimation && (
+        <div className="mb-4 text-center">
+          <span className="rounded-full bg-orange-500/20 px-4 py-1 text-sm font-medium text-orange-400">
+            ⏭️ 유찰된 매물
+          </span>
+        </div>
+      )}
+
       {/* 현재 경매 대상 카드 */}
       <motion.div
         className="mb-8 w-full max-w-md rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 text-center"
@@ -197,28 +229,28 @@ export default function AuctionPhase({
         )}
       </motion.div>
 
-      {/* 타이머 */}
+      {/* 타이머 (0.1초 단위) */}
       <div className="mb-6 w-full max-w-md">
         <div className="mb-2 flex items-center justify-center gap-2">
           <motion.span
             className={`text-5xl font-bold ${
-              timer <= 3 ? "text-red-400" : "text-slate-200"
+              timer <= 30 ? "text-red-400" : "text-slate-200"
             }`}
-            animate={timer <= 3 ? { scale: [1, 1.1, 1] } : {}}
+            animate={timer <= 30 ? { scale: [1, 1.1, 1] } : {}}
             transition={{ duration: 0.3 }}
           >
-            {timer}
+            {(timer / 10).toFixed(1)}
           </motion.span>
           <span className="text-xl text-slate-400">초</span>
         </div>
         <div className="h-3 overflow-hidden rounded-full bg-slate-700">
           <motion.div
             className={`h-full rounded-full ${
-              timer <= 3 ? "bg-red-500" : "bg-amber-500"
+              timer <= 30 ? "bg-red-500" : "bg-amber-500"
             }`}
             initial={{ width: "100%" }}
             animate={{ width: `${(timer / INITIAL_TIMER_SECONDS) * 100}%` }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.1 }}
           />
         </div>
       </div>
@@ -264,36 +296,39 @@ export default function AuctionPhase({
             {/* 최소입찰 버튼 */}
             <motion.button
               className={`rounded-full px-6 py-3 text-lg font-bold shadow-lg transition-colors ${
-                !timerRunning || nextMinBid > myTeam.currentPoints
+                !timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder
                   ? "cursor-not-allowed bg-slate-700 text-slate-500"
                   : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-900 shadow-amber-500/30"
               }`}
-              whileHover={!timerRunning || nextMinBid > myTeam.currentPoints ? {} : { scale: 1.05 }}
-              whileTap={!timerRunning || nextMinBid > myTeam.currentPoints ? {} : { scale: 0.95 }}
+              whileHover={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 1.05 }}
+              whileTap={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 0.95 }}
               onClick={() => onBid(nextMinBid)}
-              disabled={!timerRunning || nextMinBid > myTeam.currentPoints}
+              disabled={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder}
             >
-              +{minBidUnit}p
+              {isHighestBidder ? "최고 입찰 중" : `+${minBidUnit}p`}
             </motion.button>
 
             {/* 직접 입찰 */}
-            <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/50 px-4">
+            <div className={`flex items-center gap-2 rounded-full border bg-slate-800/50 px-4 ${
+              isHighestBidder ? "border-slate-700 opacity-50" : "border-slate-600"
+            }`}>
               <input
                 type="number"
                 min={nextMinBid}
                 max={myTeam.currentPoints}
                 value={customBidInput}
                 onChange={(e) => setCustomBidInput(e.target.value)}
-                placeholder={`${nextMinBid}p 이상`}
+                placeholder={isHighestBidder ? "최고 입찰 중" : `${nextMinBid}p 이상`}
                 className="w-28 bg-transparent py-3 text-center text-slate-200 outline-none placeholder:text-slate-500"
-                disabled={!timerRunning}
+                disabled={!timerRunning || isHighestBidder}
               />
               <motion.button
                 className={`rounded-full px-4 py-2 text-sm font-medium ${
                   !timerRunning ||
                   !customBidInput ||
                   parseInt(customBidInput) < nextMinBid ||
-                  parseInt(customBidInput) > myTeam.currentPoints
+                  parseInt(customBidInput) > myTeam.currentPoints ||
+                  isHighestBidder
                     ? "cursor-not-allowed bg-slate-700 text-slate-500"
                     : "bg-slate-600 text-slate-200 hover:bg-slate-500"
                 }`}
@@ -304,7 +339,8 @@ export default function AuctionPhase({
                   !timerRunning ||
                   !customBidInput ||
                   parseInt(customBidInput) < nextMinBid ||
-                  parseInt(customBidInput) > myTeam.currentPoints
+                  parseInt(customBidInput) > myTeam.currentPoints ||
+                  isHighestBidder
                 }
               >
                 입찰
@@ -331,7 +367,8 @@ export default function AuctionPhase({
       {/* 주최자 컨트롤 */}
       {currentRole === "HOST" && (
         <div className="mt-8 flex gap-4">
-          {!timerRunning && !showSoldAnimation && (
+          {/* 매물 소개 상태 (타이머 15초)에서만 경매 시작 버튼 */}
+          {!timerRunning && !showSoldAnimation && !isPassed && timer === INITIAL_TIMER_SECONDS && (
             <motion.button
               className="rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-6 py-3 font-bold text-slate-900 shadow-lg shadow-amber-500/30"
               whileHover={{ scale: 1.05 }}
@@ -342,15 +379,27 @@ export default function AuctionPhase({
             </motion.button>
           )}
 
-          {/* 유찰 버튼 (입찰자가 없을 때만 활성화) */}
-          {timer === 0 && !highestBidTeamId && (
+          {/* 타이머 0초 & 입찰자 없음 → 유찰 버튼만 */}
+          {timer === 0 && !highestBidTeamId && !isPassed && !timerRunning && (
             <motion.button
-              className="rounded-full border border-slate-600 bg-slate-800/50 px-6 py-3 font-medium text-slate-300 hover:bg-slate-700/50"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              className="rounded-full bg-gradient-to-r from-orange-500 via-orange-400 to-orange-500 px-6 py-3 font-bold text-slate-900 shadow-lg shadow-orange-500/30"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={onPass}
             >
-              유찰 (다음으로)
+              유찰 처리
+            </motion.button>
+          )}
+
+          {/* 유찰된 대상인 경우 → 다음 매물로 이동 버튼 */}
+          {isPassed && !timerRunning && !showSoldAnimation && (
+            <motion.button
+              className="rounded-full border border-orange-500/50 bg-orange-500/10 px-6 py-3 font-medium text-orange-400 hover:bg-orange-500/20"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onNextAuction}
+            >
+              다음 매물로 →
             </motion.button>
           )}
         </div>

@@ -3,9 +3,10 @@ export const DEFAULT_TOTAL_POINTS = 1000;
 export const DEFAULT_TEAM_COUNT = 5;
 export const DEFAULT_MEMBER_PER_TEAM = 4;
 
-// 타이머 설정
-export const INITIAL_TIMER_SECONDS = 15;
-export const BID_TIME_EXTENSION_SECONDS = 2;
+// 타이머 설정 (0.1초 단위, 15초 = 150, 2초 = 20)
+export const INITIAL_TIMER_SECONDS = 150; // 15.0초
+export const BID_TIME_EXTENSION_SECONDS = 20; // 2.0초
+export const TIMER_INTERVAL_MS = 100; // 0.1초마다 갱신
 
 // 입찰 단위 계산 규칙
 // 현재가에 따라 최소 입찰 단위가 동적으로 변경됨
