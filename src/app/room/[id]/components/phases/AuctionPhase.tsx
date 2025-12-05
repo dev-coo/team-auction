@@ -18,6 +18,7 @@ interface AuctionPhaseProps {
   myTeam: Team | null;
   currentTarget: Participant | null | undefined;
   isPassed: boolean; // 현재 대상이 유찰된 상태인지 (버그 3 해결)
+  isTeamFull: boolean; // 현재 팀장의 팀이 가득 찼는지
   onStartAuction: () => void;
   onBid: (amount: number) => void;
   onNextAuction: () => void;
@@ -31,6 +32,7 @@ export default function AuctionPhase({
   myTeam,
   currentTarget,
   isPassed,
+  isTeamFull,
   onStartAuction,
   onBid,
   onNextAuction,
@@ -289,70 +291,87 @@ export default function AuctionPhase({
             <span className="font-bold text-amber-400">
               {myTeam.currentPoints}p
             </span>
+            {isTeamFull && (
+              <span className="ml-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
+                팀 구성 완료
+              </span>
+            )}
           </div>
 
-          {/* 입찰 UI - 최소입찰 버튼 1개 + 직접입찰 */}
-          <div className="flex items-center justify-center gap-3">
-            {/* 최소입찰 버튼 */}
-            <motion.button
-              className={`rounded-full px-6 py-3 text-lg font-bold shadow-lg transition-colors ${
-                !timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder
-                  ? "cursor-not-allowed bg-slate-700 text-slate-500"
-                  : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-900 shadow-amber-500/30"
-              }`}
-              whileHover={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 1.05 }}
-              whileTap={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 0.95 }}
-              onClick={() => onBid(nextMinBid)}
-              disabled={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder}
-            >
-              {isHighestBidder ? "최고 입찰 중" : `+${minBidUnit}p`}
-            </motion.button>
-
-            {/* 직접 입찰 */}
-            <div className={`flex items-center gap-2 rounded-full border bg-slate-800/50 px-4 ${
-              isHighestBidder ? "border-slate-700 opacity-50" : "border-slate-600"
-            }`}>
-              <input
-                type="number"
-                min={nextMinBid}
-                max={myTeam.currentPoints}
-                value={customBidInput}
-                onChange={(e) => setCustomBidInput(e.target.value)}
-                placeholder={isHighestBidder ? "최고 입찰 중" : `${nextMinBid}p 이상`}
-                className="w-28 bg-transparent py-3 text-center text-slate-200 outline-none placeholder:text-slate-500"
-                disabled={!timerRunning || isHighestBidder}
-              />
-              <motion.button
-                className={`rounded-full px-4 py-2 text-sm font-medium ${
-                  !timerRunning ||
-                  !customBidInput ||
-                  parseInt(customBidInput) < nextMinBid ||
-                  parseInt(customBidInput) > myTeam.currentPoints ||
-                  isHighestBidder
-                    ? "cursor-not-allowed bg-slate-700 text-slate-500"
-                    : "bg-slate-600 text-slate-200 hover:bg-slate-500"
-                }`}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleCustomBid}
-                disabled={
-                  !timerRunning ||
-                  !customBidInput ||
-                  parseInt(customBidInput) < nextMinBid ||
-                  parseInt(customBidInput) > myTeam.currentPoints ||
-                  isHighestBidder
-                }
-              >
-                입찰
-              </motion.button>
+          {/* 팀이 가득 찼을 때 메시지 */}
+          {isTeamFull ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="rounded-full bg-green-500/10 px-6 py-3 text-green-400">
+                ✅ 팀원 모집이 완료되었습니다
+              </div>
+              <p className="text-sm text-slate-500">더 이상 입찰할 수 없습니다</p>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* 입찰 UI - 최소입찰 버튼 1개 + 직접입찰 */}
+              <div className="flex items-center justify-center gap-3">
+                {/* 최소입찰 버튼 */}
+                <motion.button
+                  className={`rounded-full px-6 py-3 text-lg font-bold shadow-lg transition-colors ${
+                    !timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder
+                      ? "cursor-not-allowed bg-slate-700 text-slate-500"
+                      : "bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-900 shadow-amber-500/30"
+                  }`}
+                  whileHover={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 1.05 }}
+                  whileTap={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder ? {} : { scale: 0.95 }}
+                  onClick={() => onBid(nextMinBid)}
+                  disabled={!timerRunning || nextMinBid > myTeam.currentPoints || isHighestBidder}
+                >
+                  {isHighestBidder ? "최고 입찰 중" : `+${minBidUnit}p`}
+                </motion.button>
 
-          {/* 입찰 불가 메시지 */}
-          {!timerRunning && !showSoldAnimation && (
-            <p className="mt-3 text-center text-sm text-slate-500">
-              경매가 시작되면 입찰할 수 있습니다
-            </p>
+                {/* 직접 입찰 */}
+                <div className={`flex items-center gap-2 rounded-full border bg-slate-800/50 px-4 ${
+                  isHighestBidder ? "border-slate-700 opacity-50" : "border-slate-600"
+                }`}>
+                  <input
+                    type="number"
+                    min={nextMinBid}
+                    max={myTeam.currentPoints}
+                    value={customBidInput}
+                    onChange={(e) => setCustomBidInput(e.target.value)}
+                    placeholder={isHighestBidder ? "최고 입찰 중" : `${nextMinBid}p 이상`}
+                    className="w-28 bg-transparent py-3 text-center text-slate-200 outline-none placeholder:text-slate-500"
+                    disabled={!timerRunning || isHighestBidder}
+                  />
+                  <motion.button
+                    className={`rounded-full px-4 py-2 text-sm font-medium ${
+                      !timerRunning ||
+                      !customBidInput ||
+                      parseInt(customBidInput) < nextMinBid ||
+                      parseInt(customBidInput) > myTeam.currentPoints ||
+                      isHighestBidder
+                        ? "cursor-not-allowed bg-slate-700 text-slate-500"
+                        : "bg-slate-600 text-slate-200 hover:bg-slate-500"
+                    }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleCustomBid}
+                    disabled={
+                      !timerRunning ||
+                      !customBidInput ||
+                      parseInt(customBidInput) < nextMinBid ||
+                      parseInt(customBidInput) > myTeam.currentPoints ||
+                      isHighestBidder
+                    }
+                  >
+                    입찰
+                  </motion.button>
+                </div>
+              </div>
+
+              {/* 입찰 불가 메시지 */}
+              {!timerRunning && !showSoldAnimation && (
+                <p className="mt-3 text-center text-sm text-slate-500">
+                  경매가 시작되면 입찰할 수 있습니다
+                </p>
+              )}
+            </>
           )}
         </div>
       ) : currentRole !== "HOST" ? (
