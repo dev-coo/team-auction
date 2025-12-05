@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { AuctionPhase, ParticipantRole } from "@/types";
 
 interface DebugControlsProps {
@@ -7,6 +8,8 @@ interface DebugControlsProps {
   currentPhase: AuctionPhase;
   onRoleChange: (role: ParticipantRole) => void;
   onPhaseChange: (phase: AuctionPhase) => void;
+  onReset?: () => Promise<void>;
+  isResetting?: boolean;
 }
 
 const roleOptions: ParticipantRole[] = ["HOST", "CAPTAIN", "OBSERVER"];
@@ -65,7 +68,18 @@ export default function DebugControls({
   currentPhase,
   onRoleChange,
   onPhaseChange,
+  onReset,
+  isResetting,
 }: DebugControlsProps) {
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleReset = async () => {
+    if (onReset) {
+      await onReset();
+      setShowConfirm(false);
+    }
+  };
+
   return (
     <div className="flex items-center gap-4 rounded-lg border border-dashed border-slate-600 bg-slate-800/30 px-3 py-2">
       <span className="text-xs font-medium text-slate-500">DEBUG</span>
@@ -109,6 +123,37 @@ export default function DebugControls({
           ))}
         </select>
       </div>
+
+      {/* 초기화 버튼 */}
+      {onReset && (
+        <div className="relative">
+          {showConfirm ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-red-400">정말 초기화?</span>
+              <button
+                onClick={handleReset}
+                disabled={isResetting}
+                className="rounded px-2 py-1 text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {isResetting ? "..." : "확인"}
+              </button>
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="rounded px-2 py-1 text-xs font-medium bg-slate-600 text-slate-200 hover:bg-slate-500"
+              >
+                취소
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors"
+            >
+              초기화
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
