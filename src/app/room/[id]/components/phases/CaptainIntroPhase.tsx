@@ -73,15 +73,7 @@ export default function CaptainIntroPhase({
               👑
             </div>
 
-            {/* 팀명 */}
-            <div
-              className="mb-4 inline-block rounded-full px-4 py-1.5 text-sm font-bold"
-              style={{ backgroundColor: `${currentTeam.color}30`, color: currentTeam.color }}
-            >
-              {currentTeam.name}
-            </div>
-
-            {/* 닉네임 */}
+            {/* 팀장 닉네임 (팀 이름이 닉네임 기반이므로 중복 제거) */}
             <div className="mb-2 text-2xl font-bold text-slate-200">
               {currentCaptain.nickname}
             </div>
