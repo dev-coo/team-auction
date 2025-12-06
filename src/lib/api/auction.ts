@@ -160,6 +160,15 @@ export async function createAuction(
       hostCode: room.host_code,
       observerCode: room.observer_code,
       createdAt: room.created_at,
+      // 실시간 상태 동기화용 필드 (기본값)
+      currentPrice: 5,
+      highestBidTeamId: null,
+      timerEndAt: null,
+      timerRunning: false,
+      auctionQueue: [],
+      shuffleOrder: [],
+      captainIntroIndex: 0,
+      completedCount: 0,
     },
     teams: (updatedTeams || []).map((team, i) => ({
       id: team.id,
@@ -348,6 +357,15 @@ function mapRoomToAuctionRoom(data: any): AuctionRoom {
     hostCode: data.host_code,
     observerCode: data.observer_code,
     createdAt: data.created_at,
+    // 실시간 상태 동기화용 필드
+    currentPrice: data.current_price ?? 5,
+    highestBidTeamId: data.highest_bid_team_id ?? null,
+    timerEndAt: data.timer_end_at ?? null,
+    timerRunning: data.timer_running ?? false,
+    auctionQueue: data.auction_queue ?? [],
+    shuffleOrder: data.shuffle_order ?? [],
+    captainIntroIndex: data.captain_intro_index ?? 0,
+    completedCount: data.completed_count ?? 0,
   };
 }
 
@@ -624,10 +642,21 @@ export async function resetAuction(roomId: string): Promise<void> {
     throw new Error(`팀 조회 실패: ${teamsError.message}`);
   }
 
-  // 3. auction_rooms 테이블: phase를 WAITING으로
+  // 3. auction_rooms 테이블: phase를 WAITING으로 + 실시간 상태 초기화
   const { error: updateRoomError } = await supabase
     .from("auction_rooms")
-    .update({ phase: "WAITING", current_target_id: null })
+    .update({
+      phase: "WAITING",
+      current_target_id: null,
+      current_price: 5,
+      highest_bid_team_id: null,
+      timer_end_at: null,
+      timer_running: false,
+      auction_queue: [],
+      shuffle_order: [],
+      captain_intro_index: 0,
+      completed_count: 0,
+    })
     .eq("id", roomId);
 
   if (updateRoomError) {
@@ -676,4 +705,164 @@ export async function resetAuction(roomId: string): Promise<void> {
   if (deleteBidsError) {
     throw new Error(`입찰 기록 삭제 실패: ${deleteBidsError.message}`);
   }
+}
+
+// ============================================
+// 실시간 상태 동기화 API
+// ============================================
+
+/**
+ * 실시간 상태 업데이트용 타입
+ */
+export interface RealtimeStateUpdate {
+  currentTargetId?: string | null;
+  currentPrice?: number;
+  highestBidTeamId?: string | null;
+  timerEndAt?: string | null;
+  timerRunning?: boolean;
+  auctionQueue?: string[];
+  shuffleOrder?: string[];
+  captainIntroIndex?: number;
+  completedCount?: number;
+  phase?: string;
+}
+
+/**
+ * 경매방 실시간 상태 업데이트
+ */
+export async function updateRealtimeState(
+  roomId: string,
+  state: RealtimeStateUpdate
+): Promise<void> {
+  // camelCase → snake_case 변환
+  const updateData: Record<string, unknown> = {};
+
+  if (state.currentTargetId !== undefined) {
+    updateData.current_target_id = state.currentTargetId;
+  }
+  if (state.currentPrice !== undefined) {
+    updateData.current_price = state.currentPrice;
+  }
+  if (state.highestBidTeamId !== undefined) {
+    updateData.highest_bid_team_id = state.highestBidTeamId;
+  }
+  if (state.timerEndAt !== undefined) {
+    updateData.timer_end_at = state.timerEndAt;
+  }
+  if (state.timerRunning !== undefined) {
+    updateData.timer_running = state.timerRunning;
+  }
+  if (state.auctionQueue !== undefined) {
+    updateData.auction_queue = state.auctionQueue;
+  }
+  if (state.shuffleOrder !== undefined) {
+    updateData.shuffle_order = state.shuffleOrder;
+  }
+  if (state.captainIntroIndex !== undefined) {
+    updateData.captain_intro_index = state.captainIntroIndex;
+  }
+  if (state.completedCount !== undefined) {
+    updateData.completed_count = state.completedCount;
+  }
+  if (state.phase !== undefined) {
+    updateData.phase = state.phase;
+  }
+
+  const { error } = await supabase
+    .from("auction_rooms")
+    .update(updateData)
+    .eq("id", roomId);
+
+  if (error) {
+    throw new Error(`실시간 상태 업데이트 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 셔플 완료 시 상태 저장
+ */
+export async function saveShuffleState(
+  roomId: string,
+  shuffledOrder: string[]
+): Promise<void> {
+  await updateRealtimeState(roomId, {
+    shuffleOrder: shuffledOrder,
+    auctionQueue: shuffledOrder,
+  });
+}
+
+/**
+ * 경매 시작 시 상태 저장
+ */
+export async function saveAuctionStartState(
+  roomId: string,
+  targetId: string,
+  timerSeconds: number
+): Promise<void> {
+  const timerEndAt = new Date(Date.now() + timerSeconds * 100).toISOString();
+
+  await updateRealtimeState(roomId, {
+    currentTargetId: targetId,
+    currentPrice: 5,
+    highestBidTeamId: null,
+    timerEndAt,
+    timerRunning: true,
+  });
+}
+
+/**
+ * 입찰 시 상태 저장
+ */
+export async function saveBidState(
+  roomId: string,
+  price: number,
+  teamId: string,
+  newTimerSeconds: number
+): Promise<void> {
+  const timerEndAt = new Date(Date.now() + newTimerSeconds * 100).toISOString();
+
+  await updateRealtimeState(roomId, {
+    currentPrice: price,
+    highestBidTeamId: teamId,
+    timerEndAt,
+  });
+}
+
+/**
+ * 낙찰/패스 후 다음 타겟으로 상태 저장
+ */
+export async function saveNextTargetState(
+  roomId: string,
+  nextTargetId: string | null,
+  completedCount: number
+): Promise<void> {
+  await updateRealtimeState(roomId, {
+    currentTargetId: nextTargetId,
+    currentPrice: 5,
+    highestBidTeamId: null,
+    timerEndAt: null,
+    timerRunning: false,
+    completedCount,
+  });
+}
+
+/**
+ * 타이머 정지
+ */
+export async function stopTimer(roomId: string): Promise<void> {
+  await updateRealtimeState(roomId, {
+    timerRunning: false,
+  });
+}
+
+/**
+ * 팀장 소개 인덱스 저장
+ */
+export async function saveCaptainIntroIndex(
+  roomId: string,
+  index: number
+): Promise<void> {
+  await updateRealtimeState(roomId, {
+    captainIntroIndex: index,
+  });
 }
