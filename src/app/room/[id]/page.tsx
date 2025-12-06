@@ -33,6 +33,9 @@ import {
   createBid,
   recordSold,
   resetAuction,
+  updateRealtimeState,
+  saveShuffleState,
+  saveCaptainIntroIndex,
 } from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
@@ -138,6 +141,55 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         setTeams(teamsData);
         setParticipants(participantsData);
         setPhase(roomData.phase);
+
+        // DB에서 실시간 상태 복구
+        // 1. 팀장 소개 인덱스
+        if (roomData.captainIntroIndex > 0) {
+          setCaptainIntroIndex(roomData.captainIntroIndex);
+        }
+
+        // 2. 셔플 순서 복구
+        if (roomData.shuffleOrder && roomData.shuffleOrder.length > 0) {
+          setShuffledOrder(roomData.shuffleOrder);
+          // 셔플이 완료된 상태라면 COMPLETE로 설정
+          if (roomData.phase === "AUCTION" || roomData.phase === "FINISHED") {
+            setShuffleState("COMPLETE");
+            setRevealedCount(roomData.shuffleOrder.length);
+          }
+        }
+
+        // 3. AUCTION 상태 복구
+        if (roomData.phase === "AUCTION" && roomData.auctionQueue && roomData.auctionQueue.length > 0) {
+          // 타이머 계산: timerEndAt에서 현재 시간 빼기
+          let remainingTimer = INITIAL_TIMER_SECONDS;
+          let isTimerRunning = false;
+
+          if (roomData.timerEndAt && roomData.timerRunning) {
+            const endTime = new Date(roomData.timerEndAt).getTime();
+            const now = Date.now();
+            const remaining = Math.floor((endTime - now) / 100); // 0.1초 단위
+            if (remaining > 0) {
+              remainingTimer = remaining;
+              isTimerRunning = true;
+            }
+          }
+
+          setAuctionState({
+            currentTargetId: roomData.currentTargetId,
+            currentTargetIndex: roomData.auctionQueue.indexOf(roomData.currentTargetId || "") || 0,
+            totalTargets: roomData.auctionQueue.length,
+            auctionQueue: roomData.auctionQueue,
+            timer: remainingTimer,
+            timerRunning: isTimerRunning,
+            currentPrice: roomData.currentPrice || 5,
+            highestBidTeamId: roomData.highestBidTeamId,
+            bidHistory: [],
+            bidLockUntil: 0,
+            showSoldAnimation: false,
+            lastSoldInfo: null,
+            completedCount: roomData.completedCount || 0,
+          });
+        }
 
         // localStorage에서 역할 확인
         const savedParticipantId = localStorage.getItem(`participant_id_${roomId}`);
@@ -569,7 +621,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   }, [roomId]);
 
   // 다음 팀장 소개 (주최자용)
-  const handleNextCaptain = useCallback(() => {
+  const handleNextCaptain = useCallback(async () => {
     const isLastCaptain = captainIntroIndex === teams.length - 1;
     if (isLastCaptain) {
       // 마지막 팀장이면 다음 페이즈로
@@ -579,8 +631,13 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       const nextIndex = captainIntroIndex + 1;
       setCaptainIntroIndex(nextIndex);
       broadcast("CAPTAIN_INDEX_CHANGE", { index: nextIndex });
+
+      // DB 동기화
+      if (roomId) {
+        saveCaptainIntroIndex(roomId, nextIndex).catch(console.error);
+      }
     }
-  }, [captainIntroIndex, teams.length, broadcast, handleNextPhase]);
+  }, [captainIntroIndex, teams.length, broadcast, handleNextPhase, roomId]);
 
   // 셔플 시작 (주최자용)
   const handleStartShuffle = useCallback(() => {
@@ -609,10 +666,15 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           clearInterval(revealInterval);
           setShuffleState("COMPLETE");
           broadcast("SHUFFLE_COMPLETE", {});
+
+          // DB 동기화 - 셔플 순서 저장
+          if (roomId) {
+            saveShuffleState(roomId, shuffled).catch(console.error);
+          }
         }
       }, 500);
     }, 10000);
-  }, [participantsWithOnlineStatus, broadcast]);
+  }, [participantsWithOnlineStatus, broadcast, roomId]);
 
   // 채팅 메시지 전송
   const sendChatMessage = useCallback(() => {
@@ -767,6 +829,8 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
   const handleStartAuction = useCallback(() => {
     if (!auctionState.auctionQueue.length) return;
 
+    const timerEndAt = new Date(Date.now() + INITIAL_TIMER_SECONDS * 100).toISOString();
+
     if (!auctionState.currentTargetId) {
       // 첫 경매인 경우 (currentTargetId가 없을 때)
       const firstTarget = findNextTarget(auctionState.auctionQueue, 0, memberSoldPrices, passedMemberIds);
@@ -792,6 +856,17 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         totalTargets: auctionState.totalTargets,
         startTime: Date.now(),
       });
+
+      // DB 동기화
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          currentTargetId: firstTarget.id,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          timerEndAt,
+          timerRunning: true,
+        }).catch(console.error);
+      }
     } else {
       // 매물 소개 상태에서 경매 시작 (currentTargetId가 이미 있을 때 - 타이머만 시작)
       setAuctionState((prev) => ({
@@ -810,8 +885,18 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         totalTargets: auctionState.totalTargets,
         startTime: Date.now(),
       });
+
+      // DB 동기화
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          currentPrice: 5,
+          highestBidTeamId: null,
+          timerEndAt,
+          timerRunning: true,
+        }).catch(console.error);
+      }
     }
-  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, broadcast]);
+  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, broadcast, roomId]);
 
   // 입찰 (팀장용)
   const handleBid = useCallback(
@@ -884,6 +969,14 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           teamId: myTeam.id,
           targetId: auctionState.currentTargetId,
           amount,
+        });
+
+        // 실시간 상태 DB 동기화
+        const timerEndAt = new Date(Date.now() + newTimer * 100).toISOString();
+        await updateRealtimeState(roomId, {
+          currentPrice: amount,
+          highestBidTeamId: myTeam.id,
+          timerEndAt,
         });
       } catch (err) {
         console.error("입찰 기록 실패:", err);
@@ -964,6 +1057,12 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         winnerTeamId: winnerTeam.id,
         finalPrice,
         auctionOrder,
+      });
+
+      // 실시간 상태 DB 동기화
+      await updateRealtimeState(roomId, {
+        timerRunning: false,
+        completedCount: auctionOrder,
       });
     } catch (err) {
       console.error("낙찰 기록 실패:", err);
@@ -1258,11 +1357,21 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         targetId: next.id,
         targetIndex: next.index,
       });
+
+      // DB 동기화
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          currentTargetId: next.id,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          timerRunning: false,
+        }).catch(console.error);
+      }
     } else {
       // 이번 라운드 끝 → 다음 라운드 또는 자동 배정
       checkRoundEndOrAutoAssign(passedMemberIds);
     }
-  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, checkRoundEndOrAutoAssign, broadcast]);
+  }, [auctionState, memberSoldPrices, passedMemberIds, findNextTarget, checkRoundEndOrAutoAssign, broadcast, roomId]);
 
   // 유찰 처리 (주최자용)
   // 1라운드 유찰 → 2라운드 재경매, 2라운드 유찰 → 라운드 끝나고 한번에 랜덤 배분
@@ -1305,6 +1414,16 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         nextTargetId: next.id,
         nextIndex: next.index,
       });
+
+      // DB 동기화
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          currentTargetId: next.id,
+          currentPrice: 5,
+          highestBidTeamId: null,
+          timerRunning: false,
+        }).catch(console.error);
+      }
     } else {
       // 라운드 종료 → 다음 라운드 또는 자동 배정 체크
       broadcast("PASSED", {
@@ -1314,7 +1433,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       });
       checkRoundEndOrAutoAssign(newPassedIds);
     }
-  }, [auctionState, passedMemberIds, memberSoldPrices, memberPassCount, findNextTarget, checkRoundEndOrAutoAssign, broadcast]);
+  }, [auctionState, passedMemberIds, memberSoldPrices, memberPassCount, findNextTarget, checkRoundEndOrAutoAssign, broadcast, roomId]);
 
   // 랜덤 배분 시작 (주최자용) - 버튼 클릭 시 애니메이션 시작
   const handleStartRandomAssign = useCallback(() => {
