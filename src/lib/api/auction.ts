@@ -74,7 +74,7 @@ export async function createAuction(
   // 2. 팀 생성 (팀장 포인트 반영)
   const teamsToInsert = Array.from({ length: teamCount }, (_, i) => ({
     room_id: room.id,
-    name: `${i + 1}팀`,
+    name: captains[i]?.nickname ? `${captains[i].nickname}팀` : `${i + 1}팀`,
     captain_points: captains[i]?.points || 0,
     current_points: totalPoints - (captains[i]?.points || 0),
     color: TEAM_COLORS[i % TEAM_COLORS.length],

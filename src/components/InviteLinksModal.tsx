@@ -113,11 +113,8 @@ export default function InviteLinksModal({
                       className="h-3 w-3 rounded-full"
                       style={{ backgroundColor: team.color }}
                     />
-                    <span className="w-20 text-sm text-slate-300">
+                    <span className="flex-1 text-sm text-slate-300">
                       {team.name}
-                    </span>
-                    <span className="flex-1 truncate text-sm text-slate-400">
-                      ({team.captain.nickname})
                     </span>
                     <button
                       onClick={() =>

@@ -7,9 +7,9 @@
 ALTER TABLE auction_rooms
 ADD COLUMN IF NOT EXISTS current_price INTEGER DEFAULT 5;
 
--- 현재 최고 입찰팀
+-- 현재 최고 입찰팀 (FK 제거 - 순환 참조로 인한 PostgREST 406 에러 방지)
 ALTER TABLE auction_rooms
-ADD COLUMN IF NOT EXISTS highest_bid_team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
+ADD COLUMN IF NOT EXISTS highest_bid_team_id UUID;
 
 -- 타이머 종료 시각 (서버 시간 기준)
 ALTER TABLE auction_rooms

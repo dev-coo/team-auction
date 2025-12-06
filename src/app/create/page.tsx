@@ -294,13 +294,13 @@ export default function CreateAuction() {
     // 팀장 검사
     captains.forEach((captain, i) => {
       if (!captain.nickname.trim()) {
-        newErrors[`captain_${i}`] = `${i + 1}팀 팀장 이름을 입력해주세요`;
+        newErrors[`captain_${i}`] = `${i + 1}번째 팀장 이름을 입력해주세요`;
       }
       if (captain.points >= formData.totalPoints) {
-        newErrors[`captain_points_${i}`] = `${i + 1}팀 팀장 포인트가 총 포인트보다 작아야 합니다`;
+        newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트가 총 포인트보다 작아야 합니다`;
       }
       if (captain.points < 0) {
-        newErrors[`captain_points_${i}`] = `${i + 1}팀 팀장 포인트는 0 이상이어야 합니다`;
+        newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트는 0 이상이어야 합니다`;
       }
     });
 
@@ -512,7 +512,7 @@ export default function CreateAuction() {
                   className="grid grid-cols-12 gap-2 items-center"
                 >
                   <div className="col-span-1 text-center text-sm font-medium text-slate-400">
-                    {index + 1}팀
+                    팀장{index + 1}
                   </div>
                   <input
                     type="text"
