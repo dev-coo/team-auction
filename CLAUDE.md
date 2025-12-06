@@ -31,7 +31,7 @@ src/app/
   create/               # 경매 생성
   room/[id]/            # 경매 진행
   join/[code]/          # 초대 링크 입장
-  result/[id]/          # 결과
+  result/[id]/          # 결과 (예정)
 ```
 
 ### Auction Room Page (`src/app/room/[id]/`)
@@ -126,6 +126,10 @@ useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
   - 팀 시작 포인트 = 총 포인트 - 팀장 포인트
   - 예: 총 1000p, 팀장 200p → 해당 팀 800p로 시작
 - **팀 풀 제한**: 팀원이 다 찬 팀장은 입찰 불가
+- **팀 이름**: `{팀장닉네임}팀` 형식으로 자동 생성 (예: "홍길동팀")
+- **유찰 처리**:
+  1. 1라운드 입찰 없음 → 2라운드 진행
+  2. 2라운드 입찰 없음 → 랜덤 배분 (잔여 포인트 많은 팀에 우선 배정)
 
 ### Finished Phase 순번 계산
 - 남은 포인트 기준 내림차순 정렬
@@ -134,7 +138,12 @@ useDbChanges("participants", `room_id=eq.${roomId}`, onChange);
 
 ## Database Setup
 
-Supabase SQL Editor에서 `supabase/schema.sql` 실행 후 `.env.local` 설정:
+Supabase SQL Editor에서 아래 SQL 파일들을 순서대로 실행:
+1. `supabase/schema.sql` - 기본 테이블 및 ENUM
+2. `supabase/alter_realtime_state.sql` - 실시간 상태 동기화 컬럼
+3. `supabase/add_rpc_functions.sql` - RPC 함수 (포인트 차감 등)
+
+`.env.local` 설정:
 ```
 NEXT_PUBLIC_SUPABASE_URL=your_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key
