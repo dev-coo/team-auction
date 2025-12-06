@@ -66,9 +66,6 @@ export default function WaitingPhase({
                   />
                   <span className="font-medium">{team.name}</span>
                 </div>
-                <div className="text-xs opacity-70">
-                  {captain?.nickname || "대기 중"}
-                </div>
               </motion.div>
             );
           })}
