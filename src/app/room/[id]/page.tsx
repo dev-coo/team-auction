@@ -415,7 +415,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
             currentPrice: payload.amount,
             highestBidTeamId: payload.teamId,
             timer: Math.min(payload.newTimer, INITIAL_TIMER_SECONDS),
-            bidLockUntil: payload.timestamp + 500,
+            // bidLockUntil은 내 입찰에서만 설정 (다른 팀 입찰로 내 락이 갱신되면 안 됨)
             bidHistory: [
               {
                 teamId: payload.teamId,
