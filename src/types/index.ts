@@ -21,6 +21,15 @@ export interface AuctionRoom {
   hostCode: string;
   observerCode: string;
   createdAt: string;
+  // 실시간 상태 동기화용 필드
+  currentPrice: number;
+  highestBidTeamId: string | null;
+  timerEndAt: string | null;
+  timerRunning: boolean;
+  auctionQueue: string[];
+  shuffleOrder: string[];
+  captainIntroIndex: number;
+  completedCount: number;
 }
 
 // 참가자
