@@ -600,8 +600,12 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       }
       // Realtime으로 다른 클라이언트에 브로드캐스트
       broadcast("PHASE_CHANGE", { phase: nextPhase });
+      // DB에 phase 저장 (새 접속자가 현재 페이즈를 볼 수 있도록)
+      if (roomId) {
+        updateRealtimeState(roomId, { phase: nextPhase });
+      }
     }
-  }, [phase, broadcast]);
+  }, [phase, broadcast, roomId]);
 
   // 경매 초기화 (디버그용)
   const handleReset = useCallback(async () => {
