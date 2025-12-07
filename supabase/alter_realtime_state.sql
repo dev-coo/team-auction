@@ -34,3 +34,19 @@ ADD COLUMN IF NOT EXISTS captain_intro_index INTEGER DEFAULT 0;
 -- 완료된 경매 수
 ALTER TABLE auction_rooms
 ADD COLUMN IF NOT EXISTS completed_count INTEGER DEFAULT 0;
+
+-- ============================================
+-- 라운드 상태 동기화를 위한 컬럼 추가
+-- ============================================
+
+-- 현재 라운드 (1: 첫 경매, 2: 유찰자 재경매)
+ALTER TABLE auction_rooms
+ADD COLUMN IF NOT EXISTS current_round INTEGER DEFAULT 1;
+
+-- 멤버별 유찰 횟수 (JSONB: { "member_id": pass_count })
+ALTER TABLE auction_rooms
+ADD COLUMN IF NOT EXISTS member_pass_count JSONB DEFAULT '{}'::jsonb;
+
+-- 현재 라운드의 유찰 멤버 ID 배열 (JSONB: ["id1", "id2"])
+ALTER TABLE auction_rooms
+ADD COLUMN IF NOT EXISTS passed_member_ids JSONB DEFAULT '[]'::jsonb;

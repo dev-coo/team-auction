@@ -30,6 +30,10 @@ export interface AuctionRoom {
   shuffleOrder: string[];
   captainIntroIndex: number;
   completedCount: number;
+  // 라운드 상태 동기화용 필드
+  currentRound: number;
+  memberPassCount: Record<string, number>;
+  passedMemberIds: string[];
 }
 
 // 참가자
