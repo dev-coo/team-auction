@@ -30,6 +30,7 @@ import {
   getAuctionById,
   getTeamsByRoomId,
   getParticipantsByRoomId,
+  getAuctionResultsByRoomId,
   createBid,
   recordSold,
   resetAuction,
@@ -196,6 +197,27 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
             lastSoldInfo: null,
             completedCount: roomData.completedCount || 0,
           });
+
+          // 라운드 상태 복구
+          if (roomData.currentRound) {
+            setCurrentRound(roomData.currentRound);
+          }
+          if (roomData.memberPassCount) {
+            setMemberPassCount(roomData.memberPassCount);
+          }
+          if (roomData.passedMemberIds) {
+            setPassedMemberIds(new Set(roomData.passedMemberIds));
+          }
+
+          // memberSoldPrices 복구 (auction_results 테이블에서)
+          const auctionResults = await getAuctionResultsByRoomId(roomId);
+          if (auctionResults.length > 0) {
+            const soldPrices: Record<string, number> = {};
+            auctionResults.forEach((result) => {
+              soldPrices[result.targetId] = result.finalPrice;
+            });
+            setMemberSoldPrices(soldPrices);
+          }
         }
 
         // localStorage에서 역할 확인
@@ -1322,7 +1344,19 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       firstTargetId: firstPassedId,
       firstTargetIndex: firstPassedIndex,
     });
-  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, broadcast]);
+
+    // DB 동기화 (라운드 전환)
+    if (roomId) {
+      updateRealtimeState(roomId, {
+        currentRound: nextRound,
+        passedMemberIds: [], // 새 라운드 시작 시 초기화
+        currentTargetId: firstPassedId,
+        currentPrice: 0,
+        highestBidTeamId: null,
+        timerRunning: false,
+      }).catch(console.error);
+    }
+  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, broadcast, roomId]);
 
   // 랜덤 배분 미리 계산
   const calculateRandomAssignments = useCallback((unsoldIds: string[]) => {
@@ -1453,10 +1487,11 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
     // 유찰 횟수 증가
     const newPassCount = (memberPassCount[currentTargetId] || 0) + 1;
-    setMemberPassCount((prev) => ({
-      ...prev,
+    const newMemberPassCount = {
+      ...memberPassCount,
       [currentTargetId]: newPassCount,
-    }));
+    };
+    setMemberPassCount(newMemberPassCount);
 
     // 유찰 목록에 추가
     const newPassedIds = new Set([...passedMemberIds, currentTargetId]);
@@ -1486,13 +1521,15 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         nextIndex: next.index,
       });
 
-      // DB 동기화
+      // DB 동기화 (라운드 상태 포함)
       if (roomId) {
         updateRealtimeState(roomId, {
           currentTargetId: next.id,
           currentPrice: 0,
           highestBidTeamId: null,
           timerRunning: false,
+          memberPassCount: newMemberPassCount,
+          passedMemberIds: [...newPassedIds],
         }).catch(console.error);
       }
     } else {
@@ -1502,6 +1539,15 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         nextTargetId: null,
         nextIndex: -1,
       });
+
+      // DB 동기화 (라운드 상태)
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          memberPassCount: newMemberPassCount,
+          passedMemberIds: [...newPassedIds],
+        }).catch(console.error);
+      }
+
       checkRoundEndOrAutoAssign(newPassedIds);
     }
   }, [auctionState, passedMemberIds, memberSoldPrices, memberPassCount, findNextTarget, checkRoundEndOrAutoAssign, broadcast, roomId]);
