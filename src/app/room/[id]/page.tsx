@@ -46,7 +46,7 @@ import RandomAssignPhase from "./components/phases/RandomAssignPhase";
 import FinishedPhase from "./components/phases/FinishedPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
-import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, TIMER_INTERVAL_MS } from "@/lib/constants";
+import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, MIN_TIMER_THRESHOLD, TIMER_INTERVAL_MS } from "@/lib/constants";
 
 // 프로덕션에서 HOST에게 디버그 컨트롤 표시 여부 (나중에 false로 변경하면 아무도 못 봄)
 const SHOW_DEBUG_IN_PROD_FOR_HOST = true;
@@ -59,7 +59,7 @@ const INITIAL_AUCTION_STATE: AuctionState = {
   auctionQueue: [],
   timer: INITIAL_TIMER_SECONDS,
   timerRunning: false,
-  currentPrice: 5,
+  currentPrice: 0,
   highestBidTeamId: null,
   bidHistory: [],
   bidLockUntil: 0,
@@ -184,7 +184,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
             auctionQueue: roomData.auctionQueue,
             timer: remainingTimer,
             timerRunning: isTimerRunning,
-            currentPrice: roomData.currentPrice || 5,
+            currentPrice: roomData.currentPrice ?? 0,
             highestBidTeamId: roomData.highestBidTeamId,
             bidHistory: [],
             bidLockUntil: 0,
@@ -392,7 +392,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           totalTargets: payload.totalTargets,
           timer: INITIAL_TIMER_SECONDS,
           timerRunning: true,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           bidHistory: [],
           bidLockUntil: 0,
@@ -495,7 +495,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           currentTargetIndex: payload.nextIndex,
           timer: INITIAL_TIMER_SECONDS,
           timerRunning: false,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           bidHistory: [],
           bidLockUntil: 0,
@@ -510,7 +510,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           currentTargetIndex: payload.targetIndex,
           timer: INITIAL_TIMER_SECONDS,
           timerRunning: false,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           bidHistory: [],
           bidLockUntil: 0,
@@ -529,7 +529,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           currentTargetIndex: payload.firstTargetIndex,
           timer: INITIAL_TIMER_SECONDS,
           timerRunning: false,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           bidHistory: [],
           bidLockUntil: 0,
@@ -849,7 +849,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         currentTargetIndex: firstTarget.index,
         timer: INITIAL_TIMER_SECONDS,
         timerRunning: true,
-        currentPrice: 5,
+        currentPrice: 0,
         highestBidTeamId: null,
         bidHistory: [],
         bidLockUntil: 0,
@@ -868,7 +868,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       if (roomId) {
         updateRealtimeState(roomId, {
           currentTargetId: firstTarget.id,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           timerEndAt,
           timerRunning: true,
@@ -880,7 +880,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         ...prev,
         timer: INITIAL_TIMER_SECONDS,
         timerRunning: true,
-        currentPrice: 5,
+        currentPrice: 0,
         highestBidTeamId: null,
         bidHistory: [],
         bidLockUntil: 0,
@@ -896,7 +896,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       // DB 동기화
       if (roomId) {
         updateRealtimeState(roomId, {
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           timerEndAt,
           timerRunning: true,
@@ -935,10 +935,10 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         return;
       }
 
-      const newTimer = Math.min(
-        auctionState.timer + BID_TIME_EXTENSION_SECONDS,
-        INITIAL_TIMER_SECONDS
-      );
+      // 5초 이하면 5초로 고정, 그 외에는 +2초 (최대 30초)
+      const newTimer = auctionState.timer <= MIN_TIMER_THRESHOLD
+        ? MIN_TIMER_THRESHOLD
+        : Math.min(auctionState.timer + BID_TIME_EXTENSION_SECONDS, INITIAL_TIMER_SECONDS);
 
       // 즉시 UI 업데이트 (낙관적 업데이트)
       setAuctionState((prev) => ({
@@ -1245,7 +1245,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       currentTargetIndex: firstPassedIndex,
       timer: INITIAL_TIMER_SECONDS,
       timerRunning: false,
-      currentPrice: 5,
+      currentPrice: 0,
       highestBidTeamId: null,
       bidHistory: [],
       bidLockUntil: 0,
@@ -1352,7 +1352,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         currentTargetIndex: next.index,
         timer: INITIAL_TIMER_SECONDS,
         timerRunning: false,
-        currentPrice: 5,
+        currentPrice: 0,
         highestBidTeamId: null,
         bidHistory: [],
         bidLockUntil: 0,
@@ -1369,7 +1369,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       if (roomId) {
         updateRealtimeState(roomId, {
           currentTargetId: next.id,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           timerRunning: false,
         }).catch(console.error);
@@ -1410,7 +1410,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         currentTargetIndex: next.index,
         timer: INITIAL_TIMER_SECONDS,
         timerRunning: false,
-        currentPrice: 5,
+        currentPrice: 0,
         highestBidTeamId: null,
         bidHistory: [],
         bidLockUntil: 0,
@@ -1426,7 +1426,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       if (roomId) {
         updateRealtimeState(roomId, {
           currentTargetId: next.id,
-          currentPrice: 5,
+          currentPrice: 0,
           highestBidTeamId: null,
           timerRunning: false,
         }).catch(console.error);
