@@ -119,6 +119,7 @@ export interface AuctionStartPayload {
   targetIndex: number;
   totalTargets: number;
   startTime: number;
+  timerEndAt: number; // 타이머 종료 시각 (ms 타임스탬프)
 }
 
 export interface BidPayload {
@@ -127,7 +128,7 @@ export interface BidPayload {
   teamColor: string;
   amount: number;
   timestamp: number;
-  newTimer: number;
+  timerEndAt: number; // 타이머 종료 시각 (ms 타임스탬프)
 }
 
 export interface SoldPayload {
@@ -189,6 +190,7 @@ export interface AuctionState {
   totalTargets: number;
   auctionQueue: string[];
   timer: number;
+  timerEndAt: number; // 타이머 종료 시각 (ms 타임스탬프, 서버 시간 기준 동기화용)
   timerRunning: boolean;
   currentPrice: number;
   highestBidTeamId: string | null;
