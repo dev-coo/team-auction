@@ -48,6 +48,9 @@ import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
 import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, TIMER_INTERVAL_MS } from "@/lib/constants";
 
+// 프로덕션에서 HOST에게 디버그 컨트롤 표시 여부 (나중에 false로 변경하면 아무도 못 봄)
+const SHOW_DEBUG_IN_PROD_FOR_HOST = true;
+
 // AUCTION 상태 초기값
 const INITIAL_AUCTION_STATE: AuctionState = {
   currentTargetId: null,
@@ -1552,15 +1555,17 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
               </motion.button>
             )}
 
-            {/* 디버그 컨트롤 (역할/페이즈 선택) */}
-            <DebugControls
-              currentRole={currentRole}
-              currentPhase={phase}
-              onRoleChange={setCurrentRole}
-              onPhaseChange={setPhase}
-              onReset={handleReset}
-              isResetting={isResetting}
-            />
+            {/* 디버그 컨트롤 (역할/페이즈 선택) - dev: 모두, prod: HOST만 */}
+            {(process.env.NODE_ENV === 'development' || (SHOW_DEBUG_IN_PROD_FOR_HOST && currentRole === 'HOST')) && (
+              <DebugControls
+                currentRole={currentRole}
+                currentPhase={phase}
+                onRoleChange={setCurrentRole}
+                onPhaseChange={setPhase}
+                onReset={handleReset}
+                isResetting={isResetting}
+              />
+            )}
           </div>
         </div>
 
