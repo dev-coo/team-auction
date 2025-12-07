@@ -302,10 +302,10 @@ export default function CreateAuction() {
     for (let i = 0; i < formData.teamCount; i++) {
       const captain = captains[i];
       if (!captain || !captain.nickname.trim()) {
-        newErrors[`captain_${i}`] = `${i + 1}번째 팀장 이름을 입력해주세요`;
+        newErrors[`captain_name_${i}`] = `${i + 1}번째 팀장 이름을 입력해주세요`;
       } else {
-        if (captain.points >= formData.totalPoints) {
-          newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트가 총 포인트보다 작아야 합니다`;
+        if (captain.points > formData.totalPoints) {
+          newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트가 총 포인트보다 클 수 없습니다`;
         }
         if (captain.points < 0) {
           newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트는 0 이상이어야 합니다`;
@@ -564,9 +564,17 @@ export default function CreateAuction() {
               ))}
             </div>
 
-            {Object.keys(errors).some((k) => k.startsWith("captain_")) && (
+            {Object.keys(errors).some((k) => k.startsWith("captain_name_")) && (
               <p className="mt-2 text-sm text-red-400">
                 모든 팀장의 이름을 입력해주세요
+              </p>
+            )}
+            {Object.keys(errors).some((k) => k.startsWith("captain_points_")) && (
+              <p className="mt-2 text-sm text-red-400">
+                {Object.entries(errors)
+                  .filter(([k]) => k.startsWith("captain_points_"))
+                  .map(([, v]) => v)
+                  .join(", ")}
               </p>
             )}
           </motion.section>
