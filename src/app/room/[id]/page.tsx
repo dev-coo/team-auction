@@ -46,7 +46,7 @@ import RandomAssignPhase from "./components/phases/RandomAssignPhase";
 import FinishedPhase from "./components/phases/FinishedPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
-import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, TIMER_INTERVAL_MS } from "@/lib/constants";
+import { INITIAL_TIMER_SECONDS, BID_TIME_EXTENSION_SECONDS, MIN_TIMER_THRESHOLD, TIMER_INTERVAL_MS } from "@/lib/constants";
 
 // 프로덕션에서 HOST에게 디버그 컨트롤 표시 여부 (나중에 false로 변경하면 아무도 못 봄)
 const SHOW_DEBUG_IN_PROD_FOR_HOST = true;
@@ -935,10 +935,10 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         return;
       }
 
-      const newTimer = Math.min(
-        auctionState.timer + BID_TIME_EXTENSION_SECONDS,
-        INITIAL_TIMER_SECONDS
-      );
+      // 5초 이하면 5초로 고정, 그 외에는 +2초 (최대 30초)
+      const newTimer = auctionState.timer <= MIN_TIMER_THRESHOLD
+        ? MIN_TIMER_THRESHOLD
+        : Math.min(auctionState.timer + BID_TIME_EXTENSION_SECONDS, INITIAL_TIMER_SECONDS);
 
       // 즉시 UI 업데이트 (낙관적 업데이트)
       setAuctionState((prev) => ({
