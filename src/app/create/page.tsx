@@ -238,13 +238,20 @@ export default function CreateAuction() {
     }
 
     // 에러 제거
-    if (errors[name]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
+    setErrors((prev) => {
+      const newErrors = { ...prev };
+      // 해당 필드 에러 제거
+      delete newErrors[name];
+      // 팀 수/팀당 인원 변경 시 팀장/팀원 관련 에러도 모두 제거
+      if (name === "teamCount" || name === "memberPerTeam") {
+        Object.keys(newErrors).forEach((key) => {
+          if (key.startsWith("captain_") || key === "members") {
+            delete newErrors[key];
+          }
+        });
+      }
+      return newErrors;
+    });
   };
 
   // 팀장 정보 변경
@@ -291,18 +298,20 @@ export default function CreateAuction() {
       newErrors.totalPoints = "최소 100 포인트가 필요합니다";
     }
 
-    // 팀장 검사
-    captains.forEach((captain, i) => {
-      if (!captain.nickname.trim()) {
+    // 팀장 검사 (teamCount만큼만 검사)
+    for (let i = 0; i < formData.teamCount; i++) {
+      const captain = captains[i];
+      if (!captain || !captain.nickname.trim()) {
         newErrors[`captain_${i}`] = `${i + 1}번째 팀장 이름을 입력해주세요`;
+      } else {
+        if (captain.points >= formData.totalPoints) {
+          newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트가 총 포인트보다 작아야 합니다`;
+        }
+        if (captain.points < 0) {
+          newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트는 0 이상이어야 합니다`;
+        }
       }
-      if (captain.points >= formData.totalPoints) {
-        newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트가 총 포인트보다 작아야 합니다`;
-      }
-      if (captain.points < 0) {
-        newErrors[`captain_points_${i}`] = `${i + 1}번째 팀장 포인트는 0 이상이어야 합니다`;
-      }
-    });
+    }
 
     // 팀원 검사 (모두 필수)
     const requiredCount = formData.teamCount * (formData.memberPerTeam - 1);
@@ -331,7 +340,7 @@ export default function CreateAuction() {
 
       const result = await createAuction({
         ...formData,
-        captains: captains.map((c) => ({
+        captains: captains.slice(0, formData.teamCount).map((c) => ({
           nickname: c.nickname.trim(),
           position: c.position.trim(),
           description: c.description.trim() || undefined,
@@ -506,7 +515,7 @@ export default function CreateAuction() {
             </p>
 
             <div className="space-y-3">
-              {captains.map((captain, index) => (
+              {captains.slice(0, formData.teamCount).map((captain, index) => (
                 <div
                   key={index}
                   className="grid grid-cols-12 gap-2 items-center"
