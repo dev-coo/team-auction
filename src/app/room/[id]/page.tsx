@@ -1800,6 +1800,7 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
                 <FinishedPhase
                   teams={teams}
                   participants={participantsWithOnlineStatus}
+                  memberSoldPrices={memberSoldPrices}
                 />
               )}
             </AnimatePresence>
