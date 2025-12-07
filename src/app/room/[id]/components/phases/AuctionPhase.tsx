@@ -215,11 +215,6 @@ export default function AuctionPhase({
         className="mb-8 w-full max-w-md rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 text-center"
         layoutId={`member-card-${currentTarget.id}`}
       >
-        <div className="mb-4 flex justify-center">
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-500/20 to-purple-500/20 text-5xl">
-            👤
-          </div>
-        </div>
         <h2 className="text-3xl font-bold text-slate-200">
           {currentTarget.nickname}
         </h2>
