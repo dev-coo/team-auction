@@ -169,6 +169,10 @@ export async function createAuction(
       shuffleOrder: [],
       captainIntroIndex: 0,
       completedCount: 0,
+      // 라운드 상태 (기본값)
+      currentRound: 1,
+      memberPassCount: {},
+      passedMemberIds: [],
     },
     teams: (updatedTeams || []).map((team, i) => ({
       id: team.id,
@@ -366,6 +370,10 @@ function mapRoomToAuctionRoom(data: any): AuctionRoom {
     shuffleOrder: data.shuffle_order ?? [],
     captainIntroIndex: data.captain_intro_index ?? 0,
     completedCount: data.completed_count ?? 0,
+    // 라운드 상태 동기화용 필드
+    currentRound: data.current_round ?? 1,
+    memberPassCount: data.member_pass_count ?? {},
+    passedMemberIds: data.passed_member_ids ?? [],
   };
 }
 
@@ -656,6 +664,10 @@ export async function resetAuction(roomId: string): Promise<void> {
       shuffle_order: [],
       captain_intro_index: 0,
       completed_count: 0,
+      // 라운드 상태 초기화
+      current_round: 1,
+      member_pass_count: {},
+      passed_member_ids: [],
     })
     .eq("id", roomId);
 
@@ -725,6 +737,10 @@ export interface RealtimeStateUpdate {
   captainIntroIndex?: number;
   completedCount?: number;
   phase?: string;
+  // 라운드 상태
+  currentRound?: number;
+  memberPassCount?: Record<string, number>;
+  passedMemberIds?: string[];
 }
 
 /**
@@ -766,6 +782,16 @@ export async function updateRealtimeState(
   }
   if (state.phase !== undefined) {
     updateData.phase = state.phase;
+  }
+  // 라운드 상태
+  if (state.currentRound !== undefined) {
+    updateData.current_round = state.currentRound;
+  }
+  if (state.memberPassCount !== undefined) {
+    updateData.member_pass_count = state.memberPassCount;
+  }
+  if (state.passedMemberIds !== undefined) {
+    updateData.passed_member_ids = state.passedMemberIds;
   }
 
   const { error } = await supabase
