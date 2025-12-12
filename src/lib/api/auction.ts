@@ -892,3 +892,68 @@ export async function saveCaptainIntroIndex(
     captainIntroIndex: index,
   });
 }
+
+// ============================================
+// 서버 사이드 입찰 검증 (RPC)
+// ============================================
+
+/**
+ * 서버 입찰 검증 결과 타입
+ */
+export interface PlaceBidResult {
+  success: boolean;
+  error?:
+    | "ALREADY_HIGHEST_BIDDER"
+    | "TIMER_EXPIRED"
+    | "TIMER_NOT_RUNNING"
+    | "INSUFFICIENT_POINTS"
+    | "BELOW_MIN_BID"
+    | "ROOM_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
+    | "SERVER_ERROR";
+  amount?: number;
+  team_id?: string;
+  timer_end_at?: string;
+  server_time?: string;
+  min_bid?: number;
+  available?: number;
+  message?: string;
+}
+
+/**
+ * 서버 사이드 입찰 처리 (RPC)
+ * - 원자적 검증 및 상태 업데이트
+ * - 동시 입찰 충돌 방지
+ * - 서버 시간 기준 타이머 검증
+ *
+ * @param params.roomId 경매방 ID
+ * @param params.teamId 입찰 팀 ID
+ * @param params.targetId 경매 대상 ID
+ * @param params.amount 입찰가
+ * @returns 입찰 결과 (성공 시 새로운 타이머 종료 시각 포함)
+ */
+export async function placeBidServer(params: {
+  roomId: string;
+  teamId: string;
+  targetId: string;
+  amount: number;
+}): Promise<PlaceBidResult> {
+  const { data, error } = await supabase.rpc("place_bid", {
+    p_room_id: params.roomId,
+    p_team_id: params.teamId,
+    p_target_id: params.targetId,
+    p_amount: params.amount,
+    p_min_timer_threshold: 50, // 5.0초 (0.1초 단위)
+  });
+
+  if (error) {
+    console.error("place_bid RPC 오류:", error);
+    return {
+      success: false,
+      error: "SERVER_ERROR",
+      message: error.message,
+    };
+  }
+
+  return data as PlaceBidResult;
+}
