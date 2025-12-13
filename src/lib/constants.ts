@@ -1,3 +1,8 @@
+// 서버 사이드 입찰 검증 활성화 여부
+// .env.local에서 NEXT_PUBLIC_ENABLE_SERVER_BID=true로 설정하면 활성화
+export const ENABLE_SERVER_SIDE_BID =
+  process.env.NEXT_PUBLIC_ENABLE_SERVER_BID === "true";
+
 // 경매 기본 설정
 export const DEFAULT_TOTAL_POINTS = 1000;
 export const DEFAULT_TEAM_COUNT = 5;
