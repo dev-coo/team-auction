@@ -3,8 +3,15 @@
  *
  * 시나리오:
  * - 주최자 1명, 팀장 3명, 옵저버 1명이 동시 접속
+ * - 페이즈별로 정확한 버튼을 클릭하여 경매까지 진행
  * - 경매 페이즈에서 50ms 간격으로 팀장들이 입찰
  * - 서버 사이드 검증이 제대로 동작하는지 확인
+ *
+ * 페이즈 진행 순서:
+ * 1. WAITING → "팀장 소개 시작 →"
+ * 2. CAPTAIN_INTRO → "다음 팀장 소개 →" (반복) → "팀원 셔플 시작 →"
+ * 3. SHUFFLE → "셔플 시작" → (자동) → "경매 시작 →"
+ * 4. AUCTION → "첫 번째 경매 시작" → "경매 시작" → (입찰)
  *
  * 사용법:
  * 1. 수동으로 경매방 생성 (http://localhost:3000/create)
@@ -44,6 +51,45 @@ interface UserSession {
 
 interface TestState {
   sessions: UserSession[];
+}
+
+// =====================================================
+// 유틸리티 함수
+// =====================================================
+
+/** 버튼이 보일 때까지 대기 후 클릭 */
+async function clickButton(page: Page, text: string, timeout = 5000): Promise<boolean> {
+  try {
+    const btn = page.locator(`button:has-text("${text}")`).first();
+    await btn.waitFor({ state: "visible", timeout });
+    if (await btn.isEnabled()) {
+      await btn.click();
+      return true;
+    }
+  } catch {
+    // 버튼을 찾지 못함
+  }
+  return false;
+}
+
+/** 여러 버튼 중 하나라도 클릭 시도 */
+async function clickAnyButton(page: Page, texts: string[], timeout = 3000): Promise<string | null> {
+  for (const text of texts) {
+    if (await clickButton(page, text, timeout)) {
+      return text;
+    }
+  }
+  return null;
+}
+
+/** 페이지에 특정 텍스트가 포함되어 있는지 확인 */
+async function pageContains(page: Page, text: string): Promise<boolean> {
+  try {
+    const content = await page.textContent("body");
+    return content?.includes(text) ?? false;
+  } catch {
+    return false;
+  }
 }
 
 // =====================================================
@@ -221,7 +267,7 @@ test.describe("동시 입찰 테스트", () => {
   });
 
   // =====================================================
-  // 2단계: 경매 페이즈까지 진행
+  // 2단계: 페이즈별 진행 (WAITING → CAPTAIN_INTRO → SHUFFLE → AUCTION)
   // =====================================================
   test("2. 경매 페이즈까지 진행", async () => {
     if (!configValid) {
@@ -241,48 +287,108 @@ test.describe("동시 입찰 테스트", () => {
     }
 
     const { page: hostPage } = hostSession;
+    const captainCount = CONFIG.captainCodes.length;
 
-    // 페이즈 진행 버튼들
-    const phaseButtons = [
-      "팀장 소개 시작",
-      "셔플 시작",
-      "다음",
-      "경매 시작",
-      "첫 번째 경매 시작",
-    ];
+    // ========== WAITING 페이즈 ==========
+    console.log("\n📍 WAITING 페이즈");
+    await hostPage.waitForTimeout(1000);
 
-    // 순차적으로 다음 페이즈로 진행 (최대 10회 시도)
-    for (let attempt = 0; attempt < 10; attempt++) {
+    // "팀장 소개 시작" 버튼 대기 및 클릭
+    let clicked = await clickButton(hostPage, "팀장 소개 시작", 10000);
+    if (clicked) {
+      console.log("   ✅ '팀장 소개 시작 →' 클릭");
+    } else {
+      console.log("   ⚠️ '팀장 소개 시작' 버튼을 찾지 못함");
+    }
+    await hostPage.waitForTimeout(1000);
+
+    // ========== CAPTAIN_INTRO 페이즈 ==========
+    console.log("\n📍 CAPTAIN_INTRO 페이즈");
+
+    // 팀장 수만큼 "다음 팀장 소개" 클릭 (마지막은 "팀원 셔플 시작")
+    for (let i = 0; i < captainCount; i++) {
+      await hostPage.waitForTimeout(1500);
+
+      const isLast = i === captainCount - 1;
+      const buttonText = isLast ? "팀원 셔플 시작" : "다음 팀장 소개";
+
+      clicked = await clickButton(hostPage, buttonText, 5000);
+      if (clicked) {
+        console.log(`   ✅ '${buttonText} →' 클릭 (${i + 1}/${captainCount})`);
+      } else {
+        // 대체 버튼 시도
+        const altClicked = await clickAnyButton(hostPage, ["다음 팀장", "팀원 셔플", "다음"], 3000);
+        if (altClicked) {
+          console.log(`   ✅ '${altClicked}' 클릭 (대체)`);
+        } else {
+          console.log(`   ⚠️ 팀장 소개 버튼을 찾지 못함 (${i + 1}/${captainCount})`);
+        }
+      }
+    }
+    await hostPage.waitForTimeout(1000);
+
+    // ========== SHUFFLE 페이즈 ==========
+    console.log("\n📍 SHUFFLE 페이즈");
+
+    // "셔플 시작" 버튼 클릭
+    await hostPage.waitForTimeout(1000);
+    clicked = await clickButton(hostPage, "셔플 시작", 5000);
+    if (clicked) {
+      console.log("   ✅ '셔플 시작' 클릭");
+    } else {
+      console.log("   ⚠️ '셔플 시작' 버튼을 찾지 못함");
+    }
+
+    // 셔플 애니메이션 완료 대기 (SHUFFLING → REVEALING → COMPLETE)
+    console.log("   ⏳ 셔플 애니메이션 대기 중...");
+
+    // "경매 시작" 버튼이 나타날 때까지 대기 (최대 30초)
+    for (let i = 0; i < 30; i++) {
       await hostPage.waitForTimeout(1000);
 
-      // 현재 페이즈 확인
-      const pageContent = await hostPage.textContent("body");
-
-      // 경매 페이즈에 도달했는지 확인 (입찰 버튼이 보이면)
-      if (pageContent?.includes("현재 입찰가") || pageContent?.includes("+5p") || pageContent?.includes("+10p")) {
-        console.log("✅ 경매 페이즈 도달 (입찰 가능 상태)");
+      // 셔플 완료 후 "경매 시작" 버튼 확인
+      const auctionStartBtn = hostPage.locator('button:has-text("경매 시작")');
+      if (await auctionStartBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        console.log("   ✅ 셔플 완료 - '경매 시작 →' 버튼 발견");
+        await auctionStartBtn.click();
+        console.log("   ✅ '경매 시작 →' 클릭");
         break;
       }
 
-      // 진행 버튼 찾기 및 클릭
-      let clicked = false;
-      for (const btnText of phaseButtons) {
-        const button = hostPage.locator(`button:has-text("${btnText}")`).first();
-        if (await button.isVisible({ timeout: 500 }).catch(() => false)) {
-          if (await button.isEnabled()) {
-            await button.click();
-            console.log(`   → "${btnText}" 클릭`);
-            clicked = true;
-            await hostPage.waitForTimeout(1500);
-            break;
-          }
-        }
-      }
-
-      if (!clicked) {
-        console.log(`   (대기 중... attempt ${attempt + 1})`);
+      if (i % 5 === 4) {
+        console.log(`   ⏳ 셔플 진행 중... (${i + 1}초)`);
       }
     }
+    await hostPage.waitForTimeout(1000);
+
+    // ========== AUCTION 페이즈 ==========
+    console.log("\n📍 AUCTION 페이즈");
+
+    // "첫 번째 경매 시작" 버튼 확인 및 클릭
+    clicked = await clickButton(hostPage, "첫 번째 경매 시작", 5000);
+    if (clicked) {
+      console.log("   ✅ '첫 번째 경매 시작' 클릭");
+    }
+    await hostPage.waitForTimeout(1000);
+
+    // "경매 시작" (매물 소개 후 타이머 시작) 버튼 클릭
+    clicked = await clickButton(hostPage, "경매 시작", 5000);
+    if (clicked) {
+      console.log("   ✅ '경매 시작' 클릭 (타이머 시작)");
+    }
+
+    // 입찰 가능 상태 확인
+    await hostPage.waitForTimeout(1000);
+    const hasCurrentPrice = await pageContains(hostPage, "현재 입찰가");
+    const hasTimer = await pageContains(hostPage, "초");
+
+    if (hasCurrentPrice && hasTimer) {
+      console.log("   ✅ 경매 진행 중 (입찰 가능 상태)");
+    } else {
+      console.log("   ⚠️ 경매 상태 확인 필요");
+    }
+
+    console.log("\n✅ 경매 페이즈 도달 완료");
   });
 
   // =====================================================
@@ -309,11 +415,13 @@ test.describe("동시 입찰 테스트", () => {
 
     const { page: hostPage } = hostSession;
 
-    // === 경매 시작 버튼 클릭 (필요 시) ===
-    const startBtn = hostPage.locator('button:has-text("경매 시작")');
-    if (await startBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await startBtn.click();
-      console.log("📌 경매 시작 버튼 클릭");
+    // 타이머가 진행 중인지 확인
+    const timerEl = hostPage.locator("text=/\\d+\\.\\d+/").first();
+    const isTimerRunning = await timerEl.isVisible({ timeout: 2000 }).catch(() => false);
+
+    if (!isTimerRunning) {
+      console.log("⚠️ 타이머가 진행 중이 아닙니다. 경매 시작 버튼을 클릭합니다.");
+      await clickButton(hostPage, "경매 시작", 3000);
       await hostPage.waitForTimeout(500);
     }
 
@@ -348,7 +456,7 @@ test.describe("동시 입찰 테스트", () => {
       const actualTime = Date.now() - startTime;
 
       try {
-        // 입찰 버튼 찾기
+        // 입찰 버튼 찾기 ("+5p", "+10p" 등)
         const bidBtn = session.page.locator('button:has-text("+")').first();
         const isVisible = await bidBtn.isVisible({ timeout: 500 }).catch(() => false);
         const isEnabled = isVisible && (await bidBtn.isEnabled().catch(() => false));
@@ -488,7 +596,6 @@ test.describe("동시 입찰 테스트", () => {
     for (const session of state.sessions) {
       try {
         // 현재 입찰가 텍스트 찾기
-        const priceEl = session.page.locator("text=/현재 입찰가/").first();
         const priceContainer = session.page.locator("text=/\\d+p/").first();
         const price = (await priceContainer.textContent({ timeout: 1000 })) || "없음";
         prices.push({ session: session.nickname, price });
