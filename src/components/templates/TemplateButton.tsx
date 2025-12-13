@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { AuctionTemplate } from "@/data/templates";
+import { AuctionTemplate, TemplateTeam } from "@/data/templates";
 import TemplateSelectModal from "./TemplateSelectModal";
 
 interface TemplateButtonProps {
-  onSelect: (template: AuctionTemplate, teamCount: number) => void;
+  onSelect: (template: AuctionTemplate, selectedTeams: TemplateTeam[]) => void;
 }
 
 export default function TemplateButton({ onSelect }: TemplateButtonProps) {
@@ -24,14 +24,14 @@ export default function TemplateButton({ onSelect }: TemplateButtonProps) {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
       >
-        <span>🏆</span>
-        <span>LCK 템플릿</span>
+        <span>📋</span>
+        <span>템플릿</span>
       </motion.button>
 
       {showModal && (
         <TemplateSelectModal
-          onSelect={(template, teamCount) => {
-            onSelect(template, teamCount);
+          onSelect={(template, selectedTeams) => {
+            onSelect(template, selectedTeams);
             setShowModal(false);
           }}
           onClose={() => setShowModal(false)}

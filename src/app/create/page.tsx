@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createAuction } from "@/lib/api/auction";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import TemplateButton from "@/components/templates/TemplateButton";
-import { AuctionTemplate } from "@/data/templates";
+import { AuctionTemplate, TemplateTeam } from "@/data/templates";
 import { AuctionRoom, Team, Participant } from "@/types";
 
 const DRAFT_KEY = "auction_draft";
@@ -181,14 +181,13 @@ export default function CreateAuction() {
   };
 
   // 템플릿 적용
-  const applyTemplate = (template: AuctionTemplate, teamCount: number) => {
-    const { metadata, teams } = template;
-    const selectedTeams = teams.slice(0, teamCount);
+  const applyTemplate = (template: AuctionTemplate, selectedTeams: TemplateTeam[]) => {
+    const { metadata } = template;
 
     // 기본 정보 설정
     setFormData({
       title: `${metadata.name} 경매`,
-      teamCount: teamCount,
+      teamCount: selectedTeams.length,
       memberPerTeam: metadata.membersPerTeam,
       totalPoints: metadata.defaultPoints,
     });
