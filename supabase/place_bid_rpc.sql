@@ -21,7 +21,8 @@ CREATE OR REPLACE FUNCTION place_bid(
   p_team_id UUID,
   p_target_id UUID,
   p_amount INTEGER,
-  p_min_timer_threshold INTEGER DEFAULT 50  -- 5.0초 (0.1초 단위)
+  p_min_timer_threshold INTEGER DEFAULT 50,  -- 5.0초 (0.1초 단위)
+  p_bid_lock_ms INTEGER DEFAULT 500          -- 입찰 락 시간 (밀리초)
 )
 RETURNS JSONB AS $$
 DECLARE
@@ -29,18 +30,20 @@ DECLARE
   v_highest_bid_team_id UUID;
   v_timer_end_at TIMESTAMPTZ;
   v_timer_running BOOLEAN;
+  v_last_bid_at TIMESTAMPTZ;
   v_team_points INTEGER;
   v_min_bid INTEGER;
   v_new_timer_end_at TIMESTAMPTZ;
   v_remaining_ms INTEGER;
+  v_bid_lock_remaining_ms INTEGER;
   v_now TIMESTAMPTZ;
 BEGIN
   -- 서버 현재 시간 (모든 계산의 기준)
   v_now := NOW();
 
   -- 1. 경매방 상태 조회 (행 잠금으로 동시성 제어)
-  SELECT current_price, highest_bid_team_id, timer_end_at, timer_running
-  INTO v_current_price, v_highest_bid_team_id, v_timer_end_at, v_timer_running
+  SELECT current_price, highest_bid_team_id, timer_end_at, timer_running, last_bid_at
+  INTO v_current_price, v_highest_bid_team_id, v_timer_end_at, v_timer_running, v_last_bid_at
   FROM auction_rooms
   WHERE id = p_room_id
   FOR UPDATE;
@@ -61,7 +64,21 @@ BEGIN
     );
   END IF;
 
-  -- 3. 이미 최고 입찰자인지 검증
+  -- 3. 동시 입찰 방지: 마지막 입찰 후 lock 시간 내 재입찰 차단
+  IF v_last_bid_at IS NOT NULL THEN
+    v_bid_lock_remaining_ms := EXTRACT(EPOCH FROM (v_last_bid_at + (p_bid_lock_ms * INTERVAL '1 millisecond') - v_now)) * 1000;
+
+    IF v_bid_lock_remaining_ms > 0 THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'error', 'BID_TOO_SOON',
+        'wait_ms', CEIL(v_bid_lock_remaining_ms),
+        'message', '입찰 처리 중입니다. 잠시 후 다시 시도해주세요.'
+      );
+    END IF;
+  END IF;
+
+  -- 4. 이미 최고 입찰자인지 검증
   IF v_highest_bid_team_id = p_team_id THEN
     RETURN jsonb_build_object(
       'success', false,
@@ -69,7 +86,7 @@ BEGIN
     );
   END IF;
 
-  -- 4. 타이머 만료 검증 (서버 시간 기준)
+  -- 5. 타이머 만료 검증 (서버 시간 기준)
   IF v_timer_end_at IS NOT NULL AND v_timer_end_at < v_now THEN
     RETURN jsonb_build_object(
       'success', false,
@@ -77,7 +94,7 @@ BEGIN
     );
   END IF;
 
-  -- 5. 팀 포인트 조회 (행 잠금)
+  -- 6. 팀 포인트 조회 (행 잠금)
   SELECT current_points INTO v_team_points
   FROM teams
   WHERE id = p_team_id
@@ -90,7 +107,7 @@ BEGIN
     );
   END IF;
 
-  -- 6. 포인트 검증
+  -- 7. 포인트 검증
   IF p_amount > v_team_points THEN
     RETURN jsonb_build_object(
       'success', false,
@@ -99,7 +116,7 @@ BEGIN
     );
   END IF;
 
-  -- 7. 최소 입찰가 검증
+  -- 8. 최소 입찰가 검증
   v_min_bid := calculate_min_bid(COALESCE(v_current_price, 0));
 
   IF p_amount < v_min_bid THEN
@@ -110,7 +127,7 @@ BEGIN
     );
   END IF;
 
-  -- 8. 새 타이머 종료 시간 계산 (5초 룰)
+  -- 9. 새 타이머 종료 시간 계산 (5초 룰)
   IF v_timer_end_at IS NOT NULL THEN
     -- 남은 시간 계산 (밀리초)
     v_remaining_ms := EXTRACT(EPOCH FROM (v_timer_end_at - v_now)) * 1000;
@@ -126,19 +143,20 @@ BEGIN
     v_new_timer_end_at := NULL;
   END IF;
 
-  -- 9. 경매방 상태 업데이트
+  -- 10. 경매방 상태 업데이트 (last_bid_at 포함)
   UPDATE auction_rooms
   SET
     current_price = p_amount,
     highest_bid_team_id = p_team_id,
-    timer_end_at = v_new_timer_end_at
+    timer_end_at = v_new_timer_end_at,
+    last_bid_at = v_now
   WHERE id = p_room_id;
 
-  -- 10. 입찰 기록 저장
+  -- 11. 입찰 기록 저장
   INSERT INTO bids (room_id, team_id, target_id, amount)
   VALUES (p_room_id, p_team_id, p_target_id, p_amount);
 
-  -- 11. 성공 응답 (서버 시간 포함)
+  -- 12. 성공 응답 (서버 시간 포함)
   RETURN jsonb_build_object(
     'success', true,
     'amount', p_amount,
