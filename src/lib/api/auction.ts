@@ -910,6 +910,7 @@ export interface PlaceBidResult {
     | "BELOW_MIN_BID"
     | "ROOM_NOT_FOUND"
     | "TEAM_NOT_FOUND"
+    | "BID_TOO_SOON"
     | "SERVER_ERROR";
   amount?: number;
   team_id?: string;
@@ -917,6 +918,7 @@ export interface PlaceBidResult {
   server_time?: string;
   min_bid?: number;
   available?: number;
+  wait_ms?: number; // BID_TOO_SOON 에러 시 대기 시간 (밀리초)
   message?: string;
 }
 

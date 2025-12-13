@@ -1027,8 +1027,34 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
           });
 
           if (!result.success) {
-            // 서버 검증 실패 (console.log만, UI 알림 없음)
-            console.log("입찰 실패:", result.error, result.message);
+            // 서버 검증 실패 처리
+            switch (result.error) {
+              case "BID_TOO_SOON":
+                // 동시 입찰 방지: 다른 사람이 먼저 입찰함
+                console.log(
+                  `입찰 실패: 동시 입찰 감지 (${result.wait_ms}ms 후 재시도 가능)`
+                );
+                break;
+              case "ALREADY_HIGHEST_BIDDER":
+                console.log("입찰 실패: 이미 최고 입찰자입니다");
+                break;
+              case "BELOW_MIN_BID":
+                console.log(`입찰 실패: 최소 입찰가는 ${result.min_bid}p 입니다`);
+                break;
+              case "INSUFFICIENT_POINTS":
+                console.log(
+                  `입찰 실패: 포인트 부족 (보유: ${result.available}p)`
+                );
+                break;
+              case "TIMER_EXPIRED":
+                console.log("입찰 실패: 경매가 종료되었습니다");
+                break;
+              case "TIMER_NOT_RUNNING":
+                console.log("입찰 실패: 경매가 진행 중이 아닙니다");
+                break;
+              default:
+                console.log("입찰 실패:", result.error, result.message);
+            }
             return;
           }
 
