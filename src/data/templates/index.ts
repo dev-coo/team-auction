@@ -1,12 +1,13 @@
 import { AuctionTemplate } from "./types";
 import { LCK_STOVE_LEAGUE_TEMPLATE } from "./lck-stove-league";
+import { EPL_LEGENDS_TEMPLATE } from "./epl-legends";
 
 export * from "./types";
 
 /** 모든 템플릿 등록 */
 export const TEMPLATES: Record<string, AuctionTemplate> = {
   [LCK_STOVE_LEAGUE_TEMPLATE.metadata.id]: LCK_STOVE_LEAGUE_TEMPLATE,
-  // 향후 추가: "lpl-2025", "worlds-2025", "valorant-vct-2025" 등
+  [EPL_LEGENDS_TEMPLATE.metadata.id]: EPL_LEGENDS_TEMPLATE,
 };
 
 /** 모든 템플릿 목록 */
