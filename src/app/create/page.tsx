@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { createAuction } from "@/lib/api/auction";
 import InviteLinksModal from "@/components/InviteLinksModal";
+import TemplateButton from "@/components/templates/TemplateButton";
+import { AuctionTemplate } from "@/data/templates";
 import { AuctionRoom, Team, Participant } from "@/types";
 
 const DRAFT_KEY = "auction_draft";
@@ -176,6 +178,45 @@ export default function CreateAuction() {
     };
     localStorage.setItem(LAST_CREATED_KEY, JSON.stringify(data));
     clearDraft(); // 임시 저장은 삭제
+  };
+
+  // 템플릿 적용
+  const applyTemplate = (template: AuctionTemplate, teamCount: number) => {
+    const { metadata, teams } = template;
+    const selectedTeams = teams.slice(0, teamCount);
+
+    // 기본 정보 설정
+    setFormData({
+      title: `${metadata.name} 경매`,
+      teamCount: teamCount,
+      memberPerTeam: metadata.membersPerTeam,
+      totalPoints: metadata.defaultPoints,
+    });
+
+    // 팀장 설정
+    setCaptains(
+      selectedTeams.map((team) => ({
+        nickname: team.captain.nickname,
+        position: team.captain.position,
+        description: team.captain.description || "",
+        points: 0,
+      }))
+    );
+
+    // 팀원 설정 (모든 팀의 멤버를 flat하게)
+    setMembers(
+      selectedTeams.flatMap((team) =>
+        team.members.map((member) => ({
+          nickname: member.nickname,
+          position: member.position,
+          description: member.description || "",
+          points: 0,
+        }))
+      )
+    );
+
+    // 에러 초기화
+    setErrors({});
   };
 
   // 기본 설정 변경
@@ -388,6 +429,9 @@ export default function CreateAuction() {
           }}
         />
       </div>
+
+      {/* 템플릿 버튼 - 우측 하단 플로팅 */}
+      <TemplateButton onSelect={applyTemplate} />
 
       {/* Main content */}
       <main className="relative z-10 mx-auto max-w-4xl px-6 py-12">
