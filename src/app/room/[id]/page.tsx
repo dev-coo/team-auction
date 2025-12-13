@@ -30,12 +30,14 @@ import {
   getAuctionById,
   getTeamsByRoomId,
   getParticipantsByRoomId,
+  getAuctionResultsByRoomId,
   createBid,
   recordSold,
   resetAuction,
   updateRealtimeState,
   saveShuffleState,
   saveCaptainIntroIndex,
+  placeBidServer,
 } from "@/lib/api/auction";
 import DebugControls from "./components/DebugControls";
 import WaitingPhase from "./components/phases/WaitingPhase";
@@ -46,7 +48,12 @@ import RandomAssignPhase from "./components/phases/RandomAssignPhase";
 import FinishedPhase from "./components/phases/FinishedPhase";
 import InviteLinksModal from "@/components/InviteLinksModal";
 import { shuffleArray, getNextMinBid } from "@/lib/auction-utils";
-import { INITIAL_TIMER_SECONDS, MIN_TIMER_THRESHOLD, TIMER_INTERVAL_MS } from "@/lib/constants";
+import {
+  INITIAL_TIMER_SECONDS,
+  MIN_TIMER_THRESHOLD,
+  TIMER_INTERVAL_MS,
+  ENABLE_SERVER_SIDE_BID,
+} from "@/lib/constants";
 
 // 프로덕션에서 HOST에게 디버그 컨트롤 표시 여부 (나중에 false로 변경하면 아무도 못 봄)
 const SHOW_DEBUG_IN_PROD_FOR_HOST = true;
@@ -196,6 +203,27 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
             lastSoldInfo: null,
             completedCount: roomData.completedCount || 0,
           });
+
+          // 라운드 상태 복구
+          if (roomData.currentRound) {
+            setCurrentRound(roomData.currentRound);
+          }
+          if (roomData.memberPassCount) {
+            setMemberPassCount(roomData.memberPassCount);
+          }
+          if (roomData.passedMemberIds) {
+            setPassedMemberIds(new Set(roomData.passedMemberIds));
+          }
+
+          // memberSoldPrices 복구 (auction_results 테이블에서)
+          const auctionResults = await getAuctionResultsByRoomId(roomId);
+          if (auctionResults.length > 0) {
+            const soldPrices: Record<string, number> = {};
+            auctionResults.forEach((result) => {
+              soldPrices[result.targetId] = result.finalPrice;
+            });
+            setMemberSoldPrices(soldPrices);
+          }
         }
 
         // localStorage에서 역할 확인
@@ -966,19 +994,17 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
       const now = Date.now();
 
-      // 현재 최고 입찰자와 동일하면 입찰 불가
+      // === 클라이언트 사전 검증 (빠른 피드백용, 서버/기존 방식 공통) ===
       if (auctionState.highestBidTeamId === myTeam.id) {
         console.log("이미 최고 입찰자입니다");
         return;
       }
 
-      // 500ms 락 체크
       if (now < auctionState.bidLockUntil) {
         console.log("입찰 처리 중...");
         return;
       }
 
-      // 유효성 검증
       const minBid = getNextMinBid(auctionState.currentPrice);
       if (amount < minBid) {
         console.log(`최소 입찰가는 ${minBid}p 입니다`);
@@ -989,68 +1015,146 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         return;
       }
 
-      // 현재 남은 시간 계산 (timerEndAt 기준)
-      const remainingMs = Math.max(0, auctionState.timerEndAt - now);
-
-      // 5초 룰: 5초 이하면 5초로 리셋, 그 외에는 시간 유지 (추가 없음)
-      let newEndAt: number;
-      if (remainingMs <= MIN_TIMER_THRESHOLD * 100) {
-        // 5초 이하면 5초로 리셋
-        newEndAt = now + MIN_TIMER_THRESHOLD * 100;
-      } else {
-        // 5초 초과면 기존 종료 시간 유지
-        newEndAt = auctionState.timerEndAt;
-      }
-
-      const displayTimer = Math.ceil((newEndAt - now) / 100);
-
-      // 즉시 UI 업데이트 (낙관적 업데이트)
-      setAuctionState((prev) => ({
-        ...prev,
-        currentPrice: amount,
-        highestBidTeamId: myTeam.id,
-        timerEndAt: newEndAt,
-        timer: displayTimer,
-        bidLockUntil: now + 500,
-        bidHistory: [
-          {
+      // === Feature Flag: 서버 검증 vs 기존 방식 ===
+      if (ENABLE_SERVER_SIDE_BID) {
+        // [새 방식] 서버 사이드 입찰 검증
+        try {
+          const result = await placeBidServer({
+            roomId,
             teamId: myTeam.id,
+            targetId: auctionState.currentTargetId,
+            amount,
+          });
+
+          if (!result.success) {
+            // 서버 검증 실패 처리
+            switch (result.error) {
+              case "BID_TOO_SOON":
+                // 동시 입찰 방지: 다른 사람이 먼저 입찰함
+                console.log(
+                  `입찰 실패: 동시 입찰 감지 (${result.wait_ms}ms 후 재시도 가능)`
+                );
+                break;
+              case "ALREADY_HIGHEST_BIDDER":
+                console.log("입찰 실패: 이미 최고 입찰자입니다");
+                break;
+              case "BELOW_MIN_BID":
+                console.log(`입찰 실패: 최소 입찰가는 ${result.min_bid}p 입니다`);
+                break;
+              case "INSUFFICIENT_POINTS":
+                console.log(
+                  `입찰 실패: 포인트 부족 (보유: ${result.available}p)`
+                );
+                break;
+              case "TIMER_EXPIRED":
+                console.log("입찰 실패: 경매가 종료되었습니다");
+                break;
+              case "TIMER_NOT_RUNNING":
+                console.log("입찰 실패: 경매가 진행 중이 아닙니다");
+                break;
+              default:
+                console.log("입찰 실패:", result.error, result.message);
+            }
+            return;
+          }
+
+          // 성공 시 UI 업데이트 (서버 시간 기준)
+          const serverTimerEndAt = result.timer_end_at
+            ? new Date(result.timer_end_at).getTime()
+            : auctionState.timerEndAt;
+          const displayTimer = Math.ceil((serverTimerEndAt - Date.now()) / 100);
+
+          setAuctionState((prev) => ({
+            ...prev,
+            currentPrice: result.amount!,
+            highestBidTeamId: result.team_id!,
+            timerEndAt: serverTimerEndAt,
+            timer: Math.max(0, displayTimer),
+            bidLockUntil: Date.now() + 500,
+            bidHistory: [
+              {
+                teamId: myTeam.id,
+                teamName: myTeam.name,
+                teamColor: myTeam.color,
+                amount: result.amount!,
+                timestamp: Date.now(),
+              },
+              ...prev.bidHistory,
+            ].slice(0, 10),
+          }));
+
+          // Broadcast (다른 클라이언트에게 알림)
+          broadcast("BID", {
+            teamId: result.team_id,
             teamName: myTeam.name,
             teamColor: myTeam.color,
-            amount,
-            timestamp: now,
-          },
-          ...prev.bidHistory,
-        ].slice(0, 10),
-      }));
+            amount: result.amount,
+            timestamp: Date.now(),
+            timerEndAt: serverTimerEndAt,
+          });
+        } catch (err) {
+          console.error("서버 입찰 처리 오류:", err);
+        }
+      } else {
+        // [기존 방식] 클라이언트 사이드 (롤백 시 사용)
+        const remainingMs = Math.max(0, auctionState.timerEndAt - now);
 
-      // 브로드캐스트 (timerEndAt 절대 시간 전송)
-      broadcast("BID", {
-        teamId: myTeam.id,
-        teamName: myTeam.name,
-        teamColor: myTeam.color,
-        amount,
-        timestamp: now,
-        timerEndAt: newEndAt,
-      });
+        let newEndAt: number;
+        if (remainingMs <= MIN_TIMER_THRESHOLD * 100) {
+          newEndAt = now + MIN_TIMER_THRESHOLD * 100;
+        } else {
+          newEndAt = auctionState.timerEndAt;
+        }
 
-      // DB 저장 (fire and forget)
-      try {
-        await createBid({
-          roomId,
-          teamId: myTeam.id,
-          targetId: auctionState.currentTargetId,
-          amount,
-        });
+        const displayTimer = Math.ceil((newEndAt - now) / 100);
 
-        // 실시간 상태 DB 동기화
-        await updateRealtimeState(roomId, {
+        // 즉시 UI 업데이트 (낙관적 업데이트)
+        setAuctionState((prev) => ({
+          ...prev,
           currentPrice: amount,
           highestBidTeamId: myTeam.id,
-          timerEndAt: new Date(newEndAt).toISOString(),
+          timerEndAt: newEndAt,
+          timer: displayTimer,
+          bidLockUntil: now + 500,
+          bidHistory: [
+            {
+              teamId: myTeam.id,
+              teamName: myTeam.name,
+              teamColor: myTeam.color,
+              amount,
+              timestamp: now,
+            },
+            ...prev.bidHistory,
+          ].slice(0, 10),
+        }));
+
+        // 브로드캐스트 (timerEndAt 절대 시간 전송)
+        broadcast("BID", {
+          teamId: myTeam.id,
+          teamName: myTeam.name,
+          teamColor: myTeam.color,
+          amount,
+          timestamp: now,
+          timerEndAt: newEndAt,
         });
-      } catch (err) {
-        console.error("입찰 기록 실패:", err);
+
+        // DB 저장 (fire and forget)
+        try {
+          await createBid({
+            roomId,
+            teamId: myTeam.id,
+            targetId: auctionState.currentTargetId,
+            amount,
+          });
+
+          await updateRealtimeState(roomId, {
+            currentPrice: amount,
+            highestBidTeamId: myTeam.id,
+            timerEndAt: new Date(newEndAt).toISOString(),
+          });
+        } catch (err) {
+          console.error("입찰 기록 실패:", err);
+        }
       }
     },
     [myTeam, auctionState, roomId, broadcast]
@@ -1322,7 +1426,19 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
       firstTargetId: firstPassedId,
       firstTargetIndex: firstPassedIndex,
     });
-  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, broadcast]);
+
+    // DB 동기화 (라운드 전환)
+    if (roomId) {
+      updateRealtimeState(roomId, {
+        currentRound: nextRound,
+        passedMemberIds: [], // 새 라운드 시작 시 초기화
+        currentTargetId: firstPassedId,
+        currentPrice: 0,
+        highestBidTeamId: null,
+        timerRunning: false,
+      }).catch(console.error);
+    }
+  }, [auctionState.auctionQueue, memberSoldPrices, currentRound, broadcast, roomId]);
 
   // 랜덤 배분 미리 계산
   const calculateRandomAssignments = useCallback((unsoldIds: string[]) => {
@@ -1453,10 +1569,11 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
 
     // 유찰 횟수 증가
     const newPassCount = (memberPassCount[currentTargetId] || 0) + 1;
-    setMemberPassCount((prev) => ({
-      ...prev,
+    const newMemberPassCount = {
+      ...memberPassCount,
       [currentTargetId]: newPassCount,
-    }));
+    };
+    setMemberPassCount(newMemberPassCount);
 
     // 유찰 목록에 추가
     const newPassedIds = new Set([...passedMemberIds, currentTargetId]);
@@ -1486,13 +1603,15 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         nextIndex: next.index,
       });
 
-      // DB 동기화
+      // DB 동기화 (라운드 상태 포함)
       if (roomId) {
         updateRealtimeState(roomId, {
           currentTargetId: next.id,
           currentPrice: 0,
           highestBidTeamId: null,
           timerRunning: false,
+          memberPassCount: newMemberPassCount,
+          passedMemberIds: [...newPassedIds],
         }).catch(console.error);
       }
     } else {
@@ -1502,6 +1621,15 @@ export default function AuctionRoom({ params }: { params: Promise<{ id: string }
         nextTargetId: null,
         nextIndex: -1,
       });
+
+      // DB 동기화 (라운드 상태)
+      if (roomId) {
+        updateRealtimeState(roomId, {
+          memberPassCount: newMemberPassCount,
+          passedMemberIds: [...newPassedIds],
+        }).catch(console.error);
+      }
+
       checkRoundEndOrAutoAssign(newPassedIds);
     }
   }, [auctionState, passedMemberIds, memberSoldPrices, memberPassCount, findNextTarget, checkRoundEndOrAutoAssign, broadcast, roomId]);

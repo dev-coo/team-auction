@@ -169,6 +169,10 @@ export async function createAuction(
       shuffleOrder: [],
       captainIntroIndex: 0,
       completedCount: 0,
+      // 라운드 상태 (기본값)
+      currentRound: 1,
+      memberPassCount: {},
+      passedMemberIds: [],
     },
     teams: (updatedTeams || []).map((team, i) => ({
       id: team.id,
@@ -366,6 +370,10 @@ function mapRoomToAuctionRoom(data: any): AuctionRoom {
     shuffleOrder: data.shuffle_order ?? [],
     captainIntroIndex: data.captain_intro_index ?? 0,
     completedCount: data.completed_count ?? 0,
+    // 라운드 상태 동기화용 필드
+    currentRound: data.current_round ?? 1,
+    memberPassCount: data.member_pass_count ?? {},
+    passedMemberIds: data.passed_member_ids ?? [],
   };
 }
 
@@ -656,6 +664,10 @@ export async function resetAuction(roomId: string): Promise<void> {
       shuffle_order: [],
       captain_intro_index: 0,
       completed_count: 0,
+      // 라운드 상태 초기화
+      current_round: 1,
+      member_pass_count: {},
+      passed_member_ids: [],
     })
     .eq("id", roomId);
 
@@ -725,6 +737,10 @@ export interface RealtimeStateUpdate {
   captainIntroIndex?: number;
   completedCount?: number;
   phase?: string;
+  // 라운드 상태
+  currentRound?: number;
+  memberPassCount?: Record<string, number>;
+  passedMemberIds?: string[];
 }
 
 /**
@@ -766,6 +782,16 @@ export async function updateRealtimeState(
   }
   if (state.phase !== undefined) {
     updateData.phase = state.phase;
+  }
+  // 라운드 상태
+  if (state.currentRound !== undefined) {
+    updateData.current_round = state.currentRound;
+  }
+  if (state.memberPassCount !== undefined) {
+    updateData.member_pass_count = state.memberPassCount;
+  }
+  if (state.passedMemberIds !== undefined) {
+    updateData.passed_member_ids = state.passedMemberIds;
   }
 
   const { error } = await supabase
@@ -865,4 +891,71 @@ export async function saveCaptainIntroIndex(
   await updateRealtimeState(roomId, {
     captainIntroIndex: index,
   });
+}
+
+// ============================================
+// 서버 사이드 입찰 검증 (RPC)
+// ============================================
+
+/**
+ * 서버 입찰 검증 결과 타입
+ */
+export interface PlaceBidResult {
+  success: boolean;
+  error?:
+    | "ALREADY_HIGHEST_BIDDER"
+    | "TIMER_EXPIRED"
+    | "TIMER_NOT_RUNNING"
+    | "INSUFFICIENT_POINTS"
+    | "BELOW_MIN_BID"
+    | "ROOM_NOT_FOUND"
+    | "TEAM_NOT_FOUND"
+    | "BID_TOO_SOON"
+    | "SERVER_ERROR";
+  amount?: number;
+  team_id?: string;
+  timer_end_at?: string;
+  server_time?: string;
+  min_bid?: number;
+  available?: number;
+  wait_ms?: number; // BID_TOO_SOON 에러 시 대기 시간 (밀리초)
+  message?: string;
+}
+
+/**
+ * 서버 사이드 입찰 처리 (RPC)
+ * - 원자적 검증 및 상태 업데이트
+ * - 동시 입찰 충돌 방지
+ * - 서버 시간 기준 타이머 검증
+ *
+ * @param params.roomId 경매방 ID
+ * @param params.teamId 입찰 팀 ID
+ * @param params.targetId 경매 대상 ID
+ * @param params.amount 입찰가
+ * @returns 입찰 결과 (성공 시 새로운 타이머 종료 시각 포함)
+ */
+export async function placeBidServer(params: {
+  roomId: string;
+  teamId: string;
+  targetId: string;
+  amount: number;
+}): Promise<PlaceBidResult> {
+  const { data, error } = await supabase.rpc("place_bid", {
+    p_room_id: params.roomId,
+    p_team_id: params.teamId,
+    p_target_id: params.targetId,
+    p_amount: params.amount,
+    p_min_timer_threshold: 50, // 5.0초 (0.1초 단위)
+  });
+
+  if (error) {
+    console.error("place_bid RPC 오류:", error);
+    return {
+      success: false,
+      error: "SERVER_ERROR",
+      message: error.message,
+    };
+  }
+
+  return data as PlaceBidResult;
 }
